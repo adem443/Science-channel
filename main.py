@@ -1,4 +1,4 @@
-import asyncio, glob, json, os, subprocess
+import asyncio, glob, json, os, subprocess, sys, time
 import edge_tts
 from google import genai
 from google.oauth2.credentials import Credentials
@@ -6,6 +6,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from PIL import Image, ImageDraw, ImageFont
 
+sys.stdout.reconfigure(line_buffering=True)
 VOICES = {"guide": os.environ.get("TTS_VOICE", "en-US-AndrewNeural"), "you": os.environ.get("TTS_VOICE_YOU", "en-US-AvaNeural")}
 QUALITY = os.environ.get("MANIM_QUALITY", "m")  # l=480p, m=720p, h=1080p
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
@@ -56,14 +57,28 @@ def duration(path):
     return float(subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "format=duration",
                                           "-of", "default=nw=1:nk=1", path]))
 
+def tts(text, speaker, path):
+    text = (text or "").strip() or "."
+    voice = VOICES.get(speaker, VOICES["guide"])
+    for attempt in range(3):
+        try:
+            asyncio.run(edge_tts.Communicate(text, voice).save(path))
+            if os.path.getsize(path) > 1000:
+                return
+        except Exception as e:
+            print("edge-tts attempt", attempt + 1, "failed:", str(e)[:120])
+        time.sleep(2)
+    print("Falling back to gTTS")
+    from gtts import gTTS
+    gTTS(text, lang="en", tld="com" if speaker != "you" else "co.uk").save(path)
+
 def build_video(data, topic="", work="work"):
     os.makedirs(work, exist_ok=True)
     segs = []
     total = len(data["scenes"])
     for i, sc in enumerate(data["scenes"]):
         mp3, wav, js, name = f"{work}/{i:02d}.mp3", f"{work}/{i:02d}.wav", f"{work}/{i:02d}.json", f"s{i:02d}"
-        voice = VOICES.get(sc.get("speaker", "guide"), VOICES["guide"])
-        asyncio.run(edge_tts.Communicate(sc["narration"], voice).save(mp3))
+        tts(sc["narration"], sc.get("speaker", "guide"), mp3)
         run(["ffmpeg", "-y", "-loglevel", "error", "-i", mp3, "-ac", "1", "-ar", "16000", wav])
         d = duration(mp3) + 0.5
         json.dump(sc, open(js, "w", encoding="utf-8"), ensure_ascii=False)
