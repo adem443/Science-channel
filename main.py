@@ -35,11 +35,19 @@ def pick_topic():
 
 def generate(topic):
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    r = client.models.generate_content(
-        model=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
-        contents=PROMPT.format(topic=topic),
-        config={"response_mime_type": "application/json"})
-    return json.loads(r.text)
+    models = [os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"), "gemini-flash-latest"]
+    last = None
+    for m in models:
+        try:
+            r = client.models.generate_content(
+                model=m, contents=PROMPT.format(topic=topic),
+                config={"response_mime_type": "application/json"})
+            print("Gemini model used:", m)
+            return json.loads(r.text)
+        except Exception as e:
+            print("Model", m, "failed:", str(e)[:200])
+            last = e
+    raise last
 
 def run(cmd, **env):
     subprocess.run(cmd, check=True, env={**os.environ, **env})
