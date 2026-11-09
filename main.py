@@ -72,6 +72,9 @@ def tts(text, speaker, path):
     from gtts import gTTS
     gTTS(text, lang="en", tld="com" if speaker != "you" else "co.uk").save(path)
 
+FALLBACKS = []
+
+
 def build_video(data, topic="", work="work"):
     os.makedirs(work, exist_ok=True)
     segs = []
@@ -86,7 +89,8 @@ def build_video(data, topic="", work="work"):
         try:
             run(["manim", f"-q{QUALITY}", "--media_dir", f"{work}/media", "-o", name, "scenes.py", "SceneRenderer"], **env)
         except subprocess.CalledProcessError:
-            print(f"Scene {i}: character scene failed, using simple fallback")
+            FALLBACKS.append(i)
+            print(f"!!! Scene {i}: CHARACTER SCENE FAILED, using simple fallback", flush=True)
             run(["manim", f"-q{QUALITY}", "--media_dir", f"{work}/media", "-o", name, "scenes_fallback.py", "SceneRenderer"], **env)
         vid = glob.glob(f"{work}/media/videos/*/*/{name}.mp4")[0]
         seg = f"{work}/seg{i:02d}.mp4"
@@ -97,6 +101,10 @@ def build_video(data, topic="", work="work"):
     open(lst, "w").write("".join(f"file '{s}'\n" for s in segs))
     final = f"{work}/final.mp4"
     run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", lst, "-c", "copy", final])
+    if FALLBACKS:
+        print("WARNING: fallback scenes used for:", FALLBACKS, flush=True)
+        if len(FALLBACKS) > 3:
+            raise SystemExit("Too many scenes failed to render; fix scenes.py")
     return final
 
 def make_thumbnail(text, path):
@@ -145,6 +153,7 @@ def upload(video, thumb, data):
     return resp["id"]
 
 if __name__ == "__main__":
+    open("used.txt", "a").close()
     topic = pick_topic()
     print("Topic:", topic)
     data = generate(topic)
