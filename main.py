@@ -6,7 +6,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from PIL import Image, ImageDraw, ImageFont
 
-VOICE = os.environ.get("TTS_VOICE", "en-US-AndrewNeural")
+VOICES = {"guide": os.environ.get("TTS_VOICE", "en-US-AndrewNeural"), "you": os.environ.get("TTS_VOICE_YOU", "en-US-AvaNeural")}
 QUALITY = os.environ.get("MANIM_QUALITY", "m")  # l=480p, m=720p, h=1080p
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
@@ -18,12 +18,13 @@ Return ONLY valid JSON with this schema:
  "tags": ["..."], "thumb_text": "max 4 words",
  "claims_to_check": ["key factual claims a human should verify"],
  "scenes": [ 16-20 scenes. Each scene:
-  {{"type": "title|bullets|stat|diagram", "narration": "60-90 words of narration",
+  {{"speaker": "guide or you", "backdrop": "lab|space|ocean|city|nature|bedroom",
+    "type": "title|bullets|stat|diagram", "narration": "60-90 words of narration",
     "text": "(title) main title", "subtitle": "(title) subtitle",
     "heading": "(bullets/diagram) heading", "items": ["(bullets) max 4 short items"],
     "value": "(stat) big number", "label": "(stat) caption",
     "nodes": ["(diagram) 3-4 short steps"]}} ]}}
-Rules: The first scene must be "title". Open a curiosity gap in the first 30 seconds. Add a new surprising fact every ~2 minutes.
+Rules: Two characters appear: "guide" (a friendly scientist who explains) and "you" (a curious viewer who asks short questions). Most scenes use speaker "guide"; use "you" for a short 1-2 sentence question (max 25 words) every 3-4 scenes, followed by a "guide" answer. Pick the backdrop that fits each scene's topic. The first scene must be "title". Open a curiosity gap in the first 30 seconds. Add a new surprising fact every ~2 minutes.
 NEVER invent statistics; skip any number you are not sure about. Be scientifically accurate and clear. Avoid filler and repetition."""
 
 def pick_topic():
@@ -47,17 +48,24 @@ def duration(path):
     return float(subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "format=duration",
                                           "-of", "default=nw=1:nk=1", path]))
 
-def build_video(data, work="work"):
+def build_video(data, topic="", work="work"):
     os.makedirs(work, exist_ok=True)
     segs = []
+    total = len(data["scenes"])
     for i, sc in enumerate(data["scenes"]):
-        mp3, js, name = f"{work}/{i:02d}.mp3", f"{work}/{i:02d}.json", f"s{i:02d}"
-        asyncio.run(edge_tts.Communicate(sc["narration"], VOICE).save(mp3))
+        mp3, wav, js, name = f"{work}/{i:02d}.mp3", f"{work}/{i:02d}.wav", f"{work}/{i:02d}.json", f"s{i:02d}"
+        voice = VOICES.get(sc.get("speaker", "guide"), VOICES["guide"])
+        asyncio.run(edge_tts.Communicate(sc["narration"], voice).save(mp3))
+        run(["ffmpeg", "-y", "-loglevel", "error", "-i", mp3, "-ac", "1", "-ar", "16000", wav])
         d = duration(mp3) + 0.5
         json.dump(sc, open(js, "w", encoding="utf-8"), ensure_ascii=False)
-        run(["manim", f"-q{QUALITY}", "--media_dir", f"{work}/media", "-o", name,
-             "scenes.py", "SceneRenderer"], SCENE_JSON=js, SCENE_DUR=str(d))
-        vid = glob.glob(f"{work}/media/videos/scenes/*/{name}.mp4")[0]
+        env = dict(SCENE_JSON=js, SCENE_DUR=str(d), SCENE_AUDIO=wav, SCENE_IDX=str(i), SCENE_TOTAL=str(total), TOPIC=topic)
+        try:
+            run(["manim", f"-q{QUALITY}", "--media_dir", f"{work}/media", "-o", name, "scenes.py", "SceneRenderer"], **env)
+        except subprocess.CalledProcessError:
+            print(f"Scene {i}: character scene failed, using simple fallback")
+            run(["manim", f"-q{QUALITY}", "--media_dir", f"{work}/media", "-o", name, "scenes_fallback.py", "SceneRenderer"], **env)
+        vid = glob.glob(f"{work}/media/videos/*/*/{name}.mp4")[0]
         seg = f"{work}/seg{i:02d}.mp4"
         run(["ffmpeg", "-y", "-loglevel", "error", "-i", vid, "-i", mp3, "-map", "0:v", "-map", "1:a",
              "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "44100", "-shortest", seg])
@@ -119,7 +127,7 @@ if __name__ == "__main__":
     data = generate(topic)
     os.makedirs("work", exist_ok=True)
     print("Claims to verify:", *data.get("claims_to_check", []), sep="\n - ")
-    video = build_video(data)
+    video = build_video(data, topic)
     make_thumbnail(data.get("thumb_text", data["title"]), "work/thumb.png")
     vid = upload(video, "work/thumb.png", data)
     open("used.txt", "a", encoding="utf-8").write(topic + "\n")
