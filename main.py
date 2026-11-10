@@ -24,18 +24,7 @@ ICONS = ("battery phone thermometer flame bolt sun moon earth planet star cloud 
          "brain virus plant rocket bulb magnifier clock warning check cross gas explosion shield wave question "
          "dollar chart molecule snow").split()
 
-PROMPT = """You are the head writer of a fast, funny, visually rich English science-explainer YouTube channel ("Spark & Why") for a global audience.
-Topic: "__TOPIC__"
-Create an 8-11 minute animated explainer as a list of SHORT SHOTS (3-8 second cuts). Two cartoon characters:
-"guide" = Spark, a warm, witty male scientist who explains; "you" = Why, a curious, funny young woman who asks the questions viewers think and reacts.
-Return ONLY valid JSON:
-{"title": "max 70 chars, curiosity-driven, not misleading",
- "description": "3-4 paragraphs + hashtags. Mention that visuals and narration are made with AI tools.",
- "tags": ["..."],
- "thumb": {"text": "2-3 huge punchy words (max 14 characters per word) that create shock or curiosity", "icon": "<icon that shows the topic>", "icon2": "<optional second icon>", "theme": "red|blue|purple|green|gold", "character": "you|guide"},
- "claims_to_check": ["key factual claims a human should verify"],
- "shots": [ 70-95 shots, each:
-  {"kind": "scene|title|stat|diagram",
+SHOT_SCHEMA = """{"kind": "scene|title|stat|diagram",
    "speaker": "guide|you",
    "narration": "8-22 words (one or two short sentences) spoken in this shot",
    "layout": "duo|solo|walk|prop_only|closeup",
@@ -43,18 +32,49 @@ Return ONLY valid JSON:
    "props": [{"icon": "<icon>", "anim": "pop|pulse|shake|spin|float|grow|rise|swell", "label": "max 3 words"}],
    "reaction": "none|shock|think|happy|worried",
    "punch": "(optional) 1-3 ALL-CAPS words flashed on screen for impact",
-   "text": "(title/stat only) big text or number", "subtitle": "(title/stat only) caption",
-   "nodes": ["(diagram only) 3-4 short steps"]} ] }
+   "text": "(title/stat only) big text or number, e.g. HOUR 12", "subtitle": "(title/stat only) caption",
+   "nodes": ["(diagram only) 3-4 short steps"]}"""
+
+CAST = ('Two cartoon characters: "guide" = Spark, a warm, witty male scientist who explains; '
+        '"you" = Why, a curious, funny young woman who asks the questions viewers think and reacts.')
+
+META_PROMPT = """You are the head writer of a fast, funny, visually rich English science-explainer YouTube channel ("Spark & Why") for a global audience.
+Topic: "__TOPIC__"
+__BRIEF__
+__CAST__
+Plan a 9-10 minute video. Return ONLY valid JSON:
+{"title": "max 70 chars, curiosity-driven, not misleading",
+ "description": "3-4 paragraphs + hashtags. Mention that visuals and narration are made with AI tools.",
+ "tags": ["..."],
+ "thumb": {"text": "2-3 huge punchy words (max 14 characters per word) that create shock or curiosity", "icon": "<icon that shows the topic>", "icon2": "<optional second icon>", "theme": "red|blue|purple|green|gold", "character": "you|guide"},
+ "claims_to_check": ["key factual claims a human should verify"],
+ "sections": [ exactly 7 sections in story order, each {"name": "short name", "beats": ["4-6 specific points/facts/questions this section covers"]} ] }
+Allowed icons: __ICONS__
+Rules: section 1 is the hook (shocking opening question, why it matters, a promise of what is coming). The last section is a practical takeaway. In between, build tension: a surprising twist or misconception correction every section. Never invent statistics. Be scientifically accurate."""
+
+SECTION_PROMPT = """You are the head writer of the English science-explainer YouTube channel "Spark & Why".
+Video topic: "__TOPIC__"
+__BRIEF__
+__CAST__
+Video outline (sections in order): __OUTLINE__
+Now write ONLY section __N__ of __TOTAL__: "__NAME__". Points to cover: __BEATS__
+__CONTEXT__
+Return ONLY valid JSON: {"shots": [ __COUNT__ shots, each:
+  __SCHEMA__ ] }
 Allowed icons: __ICONS__
 Rules:
-- Total narration 1300-1600 words. The first shot is kind "title" (layout "solo", speaker "guide") and must open with a shocking hook question.
+- This section must contain __WORDS__ words of narration in total (this is a hard minimum: the finished video must run at least 9 minutes, so do not write fewer).
+- __SPECIAL__
 - EVERY shot's props must visually illustrate exactly what that shot's narration says. Use at most 2 props and no long on-screen text.
 - Use anim "swell" only for battery, "rise" only for thermometer, "grow" only for chart.
-- Pace: change layout or backdrop almost every shot; never repeat the same layout+backdrop combination twice in a row. Use "walk" a few times, "closeup" for emotional or dramatic lines, "prop_only" (speaker must be "guide") for cinematic explanation moments, "solo" for emphasis.
-- "you" speaks in about one shot of three: short funny questions, jokes, or wrong guesses (max 20 words) that "guide" answers. "reaction" (for the listener) in about 1 shot of 3. Use "punch" in about 1 shot of 4, always a different word.
-- Tell it like a story: hook in the first 20 seconds, a surprising fact or twist every ~45 seconds, a mini cliffhanger before each new section ("But here is where it gets weird..."), real-life analogies, one playful quiz moment, and a practical takeaway at the end.
-- Correct at least one common misconception and give one practical tip: original insight, not generic filler.
+- Pace: change layout or backdrop almost every shot; never repeat the same layout+backdrop twice in a row. Use "walk" now and then, "closeup" for emotional or dramatic lines, "prop_only" (speaker must be "guide") for cinematic explanation moments, "solo" for emphasis, "stat" shots for big numbers or timeline marks, "diagram" for cause-and-effect chains.
+- "you" speaks in about one shot of three: short funny questions, jokes or wrong guesses (max 20 words) that "guide" answers. "reaction" (for the listener) in about 1 shot of 3. "punch" in about 1 shot of 4, always a different word.
+- Tell it like a story: concrete real-life examples, analogies, humor, and end the section with a mini cliffhanger that leads into the next one (except in the last section).
 - NEVER invent statistics; skip any number you are not sure about. Be scientifically accurate."""
+
+MIN_MINUTES = float(os.environ.get("MIN_MINUTES", "6"))
+MIN_SECTION_WORDS = 150
+MIN_TOTAL_WORDS = 1100
 
 
 def ensure_fonts():
@@ -68,10 +88,12 @@ def ensure_fonts():
 
 
 def pick_topic():
+    """Returns (key, topic, brief). A topics.txt line may be 'Topic || notes for the writer'."""
     used = set(open("used.txt", encoding="utf-8").read().splitlines()) if os.path.exists("used.txt") else set()
-    for t in open("topics.txt", encoding="utf-8").read().splitlines():
-        if t.strip() and t not in used:
-            return t
+    for line in open("topics.txt", encoding="utf-8").read().splitlines():
+        if line.strip() and line not in used:
+            topic, _, brief = line.partition("||")
+            return line, topic.strip(), brief.strip()
     raise SystemExit("No unused topics left in topics.txt")
 
 
@@ -102,43 +124,101 @@ def retry_delay(msg):
     return min(75.0, float(m.group(1)) + 3) if m else None
 
 
-def generate(topic, client=None, sleep=time.sleep):
+def count_words(shots):
+    return sum(len((x.get("narration") or "").split()) for x in shots if isinstance(x, dict))
+
+
+def generate(topic, brief="", client=None, sleep=time.sleep):
     if client is None:
         try:
             client = genai.Client(api_key=os.environ["GEMINI_API_KEY"], http_options={"timeout": 240000})
         except Exception:
             client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    prompt = PROMPT.replace("__TOPIC__", topic).replace("__ICONS__", ", ".join(ICONS))
-    cfg = {"response_mime_type": "application/json", "max_output_tokens": 60000, "temperature": 0.9}
+    cfg = {"response_mime_type": "application/json", "max_output_tokens": 30000, "temperature": 0.9}
     primary = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
     cands = [primary] + [m for m in other_models(client) if m != primary]
     print("Models to try:", cands, flush=True)
     dead, errors = set(), []
-    for rnd in range(5):  # each round tries every live model once, then waits
-        wait_hint = 0.0
-        for m in cands:
-            if m in dead:
-                continue
-            try:
-                r = client.models.generate_content(model=m, contents=prompt, config=cfg)
-                data = parse_json(r.text)
-                print("Gemini model used:", m, "round", rnd + 1, flush=True)
-                return data
-            except Exception as e:
-                text = str(e)
-                msg = f"{m} round {rnd + 1}: {type(e).__name__}: {text[:260]}"
-                print("GEMINI ERROR ->", msg, flush=True)
-                errors.append(msg)
-                if "NOT_FOUND" in text or "PerDay" in text or "limit: 0" in text:
-                    dead.add(m)
-                elif "429" in text or "RESOURCE_EXHAUSTED" in text:
-                    wait_hint = max(wait_hint, retry_delay(text) or 30)
-        if len(dead) == len(cands):
+
+    def ask(prompt, label):
+        for rnd in range(5):  # each round tries every live model once, then waits
+            wait_hint = 0.0
+            for m in cands:
+                if m in dead:
+                    continue
+                try:
+                    r = client.models.generate_content(model=m, contents=prompt, config=cfg)
+                    data = parse_json(r.text)
+                    print(f"Gemini [{label}] model {m} round {rnd + 1} ok", flush=True)
+                    return data
+                except Exception as e:
+                    text = str(e)
+                    msg = f"{label} {m} round {rnd + 1}: {type(e).__name__}: {text[:260]}"
+                    print("GEMINI ERROR ->", msg, flush=True)
+                    errors.append(msg)
+                    if "NOT_FOUND" in text or "PerDay" in text or "limit: 0" in text:
+                        dead.add(m)
+                    elif "429" in text or "RESOURCE_EXHAUSTED" in text:
+                        wait_hint = max(wait_hint, retry_delay(text) or 30)
+            if len(dead) == len(cands):
+                break
+            w = max(wait_hint, 20 * (rnd + 1))
+            print(f"All models busy; waiting {w:.0f}s before round {rnd + 2}", flush=True)
+            sleep(w)
+        raise SystemExit("Gemini failed. Last errors:\n" + "\n".join(errors[-4:]))
+
+    icons = ", ".join(ICONS)
+    fill = lambda t: (t.replace("__TOPIC__", topic).replace("__BRIEF__", ("Writer's notes for this topic: " + brief) if brief else "")
+                      .replace("__CAST__", CAST).replace("__ICONS__", icons))
+    meta = None
+    for attempt in range(3):
+        meta = ask(fill(META_PROMPT), "outline")
+        secs = [x for x in (meta.get("sections") or []) if isinstance(x, dict) and x.get("name")]
+        if len(secs) >= 5:
+            meta["sections"] = secs[:8]
             break
-        w = max(wait_hint, 20 * (rnd + 1))
-        print(f"All models busy; waiting {w:.0f}s before round {rnd + 2}", flush=True)
-        sleep(w)
-    raise SystemExit("Gemini failed. Last errors:\n" + "\n".join(errors[-4:]))
+        print(f"Outline had only {len(secs)} sections, retrying", flush=True)
+    else:
+        raise SystemExit("Gemini returned no usable outline")
+    secs = meta["sections"]
+    outline = " | ".join(f"{i + 1}. {x['name']}" for i, x in enumerate(secs))
+    shots, prev_tail = [], ""
+
+    def write_section(i, sec, extra="", words="230-300", count="14-20"):
+        ctx = ("Previous section ended with: " + prev_tail) if prev_tail else "This is the very beginning of the video."
+        special = ('The first shot must be kind "title" (layout "solo", speaker "guide") and open with a shocking hook question.' if i == 0 else
+                   ('End with a practical takeaway and a warm sign-off inviting viewers to subscribe for more everyday science.' if i == len(secs) - 1 else
+                    'Do not repeat the intro; continue the story.'))
+        p = fill(SECTION_PROMPT).replace("__OUTLINE__", outline).replace("__N__", str(i + 1)).replace("__TOTAL__", str(len(secs)))
+        p = (p.replace("__NAME__", str(sec["name"])).replace("__BEATS__", "; ".join(str(b) for b in (sec.get("beats") or [])))
+             .replace("__CONTEXT__", ctx + extra).replace("__COUNT__", count).replace("__WORDS__", words)
+             .replace("__SCHEMA__", SHOT_SCHEMA).replace("__SPECIAL__", special))
+        best = []
+        for attempt in range(3):
+            d = ask(p, f"section {i + 1}/{len(secs)}")
+            got = [x for x in (d.get("shots") or []) if isinstance(x, dict) and (x.get("narration") or "").strip()]
+            w = count_words(got)
+            print(f"  section {i + 1}: {len(got)} shots, {w} words", flush=True)
+            if w > count_words(best):
+                best = got
+            if w >= MIN_SECTION_WORDS:
+                break
+            p += f"\nYour previous answer had only {w} words. Write MORE: at least {words} words, with more shots."
+        return best
+
+    for i, sec in enumerate(secs):
+        got = write_section(i, sec)
+        shots += got
+        if got:
+            prev_tail = " ".join((x.get("narration") or "") for x in got[-2:])[:300]
+    if count_words(shots) < MIN_TOTAL_WORDS:
+        print(f"Only {count_words(shots)} words so far; adding a bonus section", flush=True)
+        bonus = {"name": "Myths and surprising facts", "beats": ["two common myths about this topic and the truth", "one surprising real-world example", "one thing most people never think about"]}
+        extra = write_section(max(1, len(secs) - 2), bonus, words="260-320", count="16-22")
+        shots = shots[:-len(got)] + extra + got if got else shots + extra
+    meta["shots"] = shots
+    print(f"Script ready: {len(shots)} shots, {count_words(shots)} words", flush=True)
+    return meta
 
 
 def clean(data):
@@ -163,7 +243,7 @@ def clean(data):
         shots.append(s)
     if len(shots) < 5:
         raise SystemExit("Gemini returned too few usable shots")
-    data["shots"] = shots[:110]
+    data["shots"] = shots[:150]
     th = data.get("thumb") or {}
     th["icon"] = th.get("icon") if th.get("icon") in ICONS else "warning"
     th["text"] = str(th.get("text") or data.get("title", "WOW"))[:40]
@@ -281,7 +361,10 @@ def build_video(data, topic="", work="work"):
         futs = {i: ex.submit(prepare_shot, i, sh, work, pv, random.Random(f"{topic}{i}"), total) for i, sh, pv in jobs}
         for i, f in futs.items():
             prepared[i] = f.result()
-    print(f"voices ready: {total} shots, {sum(p[1] for p in prepared.values()) / 60:.1f} min of narration", flush=True)
+    mins = sum(p[1] for p in prepared.values()) / 60
+    print(f"voices ready: {total} shots, {mins:.1f} min of narration", flush=True)
+    if mins < MIN_MINUTES and not os.environ.get("FAKE_TTS"):
+        raise SystemExit(f"Video would only be {mins:.1f} min (minimum {MIN_MINUTES:g}). Stopping before rendering; run again.")
     # 2) render shots in parallel
     segs = [None] * total
     with ThreadPoolExecutor(WORKERS) as ex:
@@ -358,12 +441,12 @@ def upload(video, thumb, data):
 if __name__ == "__main__":
     open("used.txt", "a").close()
     ensure_fonts()
-    topic = pick_topic()
+    key, topic, brief = pick_topic()
     print("Topic:", topic)
     if os.environ.get("TEST_DATA"):
         data = json.load(open(os.environ["TEST_DATA"]))
     else:
-        data = generate(topic)
+        data = generate(topic, brief)
     data = clean(data)
     os.makedirs("work", exist_ok=True)
     json.dump(data, open("work/script.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
@@ -376,7 +459,7 @@ if __name__ == "__main__":
         pass
     if os.environ.get("UPLOAD") == "1" and os.environ.get("YT_REFRESH_TOKEN"):
         vid = upload(video, thumb, data)
-        open("used.txt", "a", encoding="utf-8").write(topic + "\n")
+        open("used.txt", "a", encoding="utf-8").write(key + "\n")
         print("Uploaded: https://youtu.be/" + vid)
     else:
         print("UPLOAD is off (or secrets missing): video saved in work/ only, nothing was uploaded.")
