@@ -57,20 +57,57 @@ def pick_topic():
     raise SystemExit("No unused topics left in topics.txt")
 
 
+def parse_json(text):
+    t = (text or "").strip()
+    if t.startswith("```"):
+        t = t.strip("`")
+        t = t[t.find("{"):]
+    a, b = t.find("{"), t.rfind("}")
+    return json.loads(t[a:b + 1])
+
+
+def other_models(client):
+    out = []
+    try:
+        for m in client.models.list():
+            n = m.name.split("/")[-1]
+            acts = getattr(m, "supported_actions", None) or []
+            if "flash" in n and "generateContent" in acts and not any(x in n for x in ("image", "tts", "live", "lite", "audio", "embed")):
+                out.append(n)
+    except Exception as e:
+        print("Could not list models:", str(e)[:200])
+    return sorted(out, reverse=True)[:2]
+
+
 def generate(topic):
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    models = [os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"), "gemini-flash-latest"]
     prompt = PROMPT.replace("__TOPIC__", topic).replace("__ICONS__", ", ".join(ICONS))
-    last = None
-    for m in models:
-        try:
-            r = client.models.generate_content(model=m, contents=prompt, config={"response_mime_type": "application/json"})
-            print("Gemini model used:", m)
-            return json.loads(r.text)
-        except Exception as e:
-            print("Model", m, "failed:", str(e)[:200])
-            last = e
-    raise last
+    cfg = {"response_mime_type": "application/json", "max_output_tokens": 60000, "temperature": 0.9}
+    primary = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+    errors = []
+    tried = []
+    for model in [primary, None]:
+        if model is None:
+            cands = [m for m in other_models(client) if m != primary]
+            print("Other models to try:", cands)
+        else:
+            cands = [model]
+        for m in cands:
+            tried.append(m)
+            for attempt in range(3):
+                try:
+                    r = client.models.generate_content(model=m, contents=prompt, config=cfg)
+                    data = parse_json(r.text)
+                    print("Gemini model used:", m, "attempt", attempt + 1)
+                    return data
+                except Exception as e:
+                    msg = f"{m} attempt {attempt + 1}: {type(e).__name__}: {str(e)[:400]}"
+                    print("GEMINI ERROR ->", msg, flush=True)
+                    errors.append(msg)
+                    if "NOT_FOUND" in str(e) or "404" in str(e)[:40]:
+                        break
+                    time.sleep(8 * (attempt + 1))
+    raise SystemExit("Gemini failed. Errors:\n" + "\n".join(errors[-4:]))
 
 
 def clean(data):
