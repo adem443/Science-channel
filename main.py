@@ -84,31 +84,42 @@ def retry_delay(msg):
     return min(75.0, float(m.group(1)) + 3) if m else None
 
 
-def generate(topic):
-    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+def generate(topic, client=None, sleep=time.sleep):
+    if client is None:
+        try:
+            client = genai.Client(api_key=os.environ["GEMINI_API_KEY"], http_options={"timeout": 240000})
+        except Exception:
+            client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     prompt = PROMPT.replace("__TOPIC__", topic).replace("__ICONS__", ", ".join(ICONS))
     cfg = {"response_mime_type": "application/json", "max_output_tokens": 60000, "temperature": 0.9}
     primary = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
-    errors = []
     cands = [primary] + [m for m in other_models(client) if m != primary]
     print("Models to try:", cands, flush=True)
-    for m in cands:
-        for attempt in range(3):
+    dead, errors = set(), []
+    for rnd in range(5):  # each round tries every live model once, then waits
+        wait_hint = 0.0
+        for m in cands:
+            if m in dead:
+                continue
             try:
                 r = client.models.generate_content(model=m, contents=prompt, config=cfg)
                 data = parse_json(r.text)
-                print("Gemini model used:", m, "attempt", attempt + 1)
+                print("Gemini model used:", m, "round", rnd + 1, flush=True)
                 return data
             except Exception as e:
                 text = str(e)
-                msg = f"{m} attempt {attempt + 1}: {type(e).__name__}: {text[:300]}"
+                msg = f"{m} round {rnd + 1}: {type(e).__name__}: {text[:260]}"
                 print("GEMINI ERROR ->", msg, flush=True)
                 errors.append(msg)
                 if "NOT_FOUND" in text or "PerDay" in text or "limit: 0" in text:
-                    break  # this model is unavailable or its daily quota is gone: go to the next model
-                wait = retry_delay(text) if "429" in text or "RESOURCE_EXHAUSTED" in text else 8 * (attempt + 1)
-                print(f"waiting {wait or 20:.0f}s before retry", flush=True)
-                time.sleep(wait or 20)
+                    dead.add(m)
+                elif "429" in text or "RESOURCE_EXHAUSTED" in text:
+                    wait_hint = max(wait_hint, retry_delay(text) or 30)
+        if len(dead) == len(cands):
+            break
+        w = max(wait_hint, 20 * (rnd + 1))
+        print(f"All models busy; waiting {w:.0f}s before round {rnd + 2}", flush=True)
+        sleep(w)
     raise SystemExit("Gemini failed. Last errors:\n" + "\n".join(errors[-4:]))
 
 
@@ -141,8 +152,12 @@ def clean(data):
     return data
 
 
-def run(cmd, **env):
-    subprocess.run(cmd, check=True, env={**os.environ, **env})
+START = time.time()
+BUDGET = float(os.environ.get("TIME_BUDGET_MIN", "150")) * 60
+
+
+def run(cmd, timeout=900, **env):
+    subprocess.run(cmd, check=True, timeout=timeout, env={**os.environ, **env})
 
 
 def duration(path):
@@ -159,15 +174,17 @@ def tts(text, speaker, path):
     voice = VOICES.get(speaker, VOICES["guide"])
     for attempt in range(3):
         try:
-            asyncio.run(edge_tts.Communicate(text, voice, rate="+5%").save(path))
+            asyncio.run(asyncio.wait_for(edge_tts.Communicate(text, voice, rate="+5%").save(path), 60))
             if os.path.getsize(path) > 1000:
                 return
         except Exception as e:
             print("edge-tts attempt", attempt + 1, "failed:", str(e)[:120])
         time.sleep(2)
     print("Falling back to gTTS")
+    from concurrent.futures import ThreadPoolExecutor
     from gtts import gTTS
-    gTTS(text, lang="en", tld="com" if speaker != "you" else "co.uk").save(path)
+    ex = ThreadPoolExecutor(1)
+    ex.submit(lambda: gTTS(text, lang="en", tld="com" if speaker != "you" else "co.uk").save(path)).result(timeout=90)
 
 
 def build_video(data, topic="", work="work"):
@@ -176,6 +193,9 @@ def build_video(data, topic="", work="work"):
     segs, total, prev = [], len(data["shots"]), None
     for i, sh in enumerate(data["shots"]):
         mp3, wav, js, name = f"{work}/{i:02d}.mp3", f"{work}/{i:02d}.wav", f"{work}/{i:02d}.json", f"s{i:02d}"
+        if time.time() - START > BUDGET:
+            raise SystemExit(f"Time budget exceeded before shot {i}/{total}. Lower MANIM_QUALITY or shorten the script.")
+        print(f"shot {i + 1}/{total} start (elapsed {int(time.time() - START)}s)", flush=True)
         tts(sh["narration"], sh["speaker"], mp3)
         run(["ffmpeg", "-y", "-loglevel", "error", "-i", mp3, "-ac", "1", "-ar", "16000", wav])
         d = duration(mp3) + 0.35
@@ -186,7 +206,7 @@ def build_video(data, topic="", work="work"):
         prev = sh
         try:
             run(["manim", f"-q{QUALITY}", "--media_dir", f"{work}/media", "-o", name, "scenes.py", "SceneRenderer"], **env)
-        except subprocess.CalledProcessError:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             FALLBACKS.append(i)
             print(f"!!! Shot {i}: SCENE FAILED, using simple fallback", flush=True)
             json.dump({"type": "title", "text": (sh.get("narration") or "")[:70], "subtitle": ""}, open(js, "w"))
