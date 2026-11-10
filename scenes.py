@@ -22,8 +22,17 @@ def pl(pts, color, w=4):
     return m
 
 
-def T(s, size, color=WHITE, outline=True):
-    t = Text(str(s), font_size=size, color=color, weight=BOLD)
+try:
+    import manimpango
+    _FONTS = set(manimpango.list_fonts())
+except Exception:
+    _FONTS = set()
+FONT_REG = "Roboto" if "Roboto" in _FONTS else ("DejaVu Sans" if "DejaVu Sans" in _FONTS else "Sans")
+FONT_HEAVY = "Roboto Black" if "Roboto Black" in _FONTS else FONT_REG
+
+
+def T(s, size, color=WHITE, outline=True, heavy=False):
+    t = Text(str(s), font_size=size, color=color, weight=BOLD, font=FONT_HEAVY if heavy else FONT_REG)
     if outline:
         t.set_stroke(BLACK, max(3, size / 9), background=True)
     return t
@@ -398,6 +407,9 @@ class Slot:
         self.anim = spec.get("anim") or "pop"
         self.g, self.sp = make_icon(self.name)
         self.g.save_state()
+        self.halo = VGroup(Circle(radius=1.7).set_fill("#ffffff", .13).set_stroke("#ffd23f", 4, opacity=.45),
+                           Circle(radius=2.1).set_fill(opacity=0).set_stroke("#ffffff", 2, opacity=.18))
+        self.halo.save_state()
         self.x, self.y, self.s, self.t_in = x, y, scale, t_in
         lab = spec.get("label")
         self.tag = None
@@ -409,7 +421,7 @@ class Slot:
             self.tag.save_state()
 
     def mobs(self):
-        return [self.g] + ([self.tag] if self.tag else [])
+        return [self.halo, self.g] + ([self.tag] if self.tag else [])
 
     def update(self, t, dur):
         x = t - self.t_in
@@ -437,6 +449,8 @@ class Slot:
             dy = .5 * p
         if a == "swell" and self.sp:
             dx = .04 * np.sin(30 * x) * p
+        self.halo.restore()
+        self.halo.scale(max(s * self.s * .85 * (1 + .04 * np.sin(4 * x)), 1e-3)).shift([self.x, self.y, 0])
         self.g.scale(max(s * self.s * sm, 1e-3))
         if rot:
             self.g.rotate(rot)
@@ -444,104 +458,219 @@ class Slot:
 
 
 # ---------------------------------------------------------------- characters
+def shade(col, k):
+    c = ManimColor(col)
+    return interpolate_color(c, ManimColor("#000000"), k) if k > 0 else interpolate_color(c, ManimColor("#ffffff"), -k)
+
+
 class Char:
+    """Chibi-style cartoon character. Ground is local y=-1.75, head top ~y=1.85."""
+
     def __init__(self, kind):
         fem = kind == "you"
         self.fem = fem
-        skin = "#f1d2b5" if fem else "#f7e3d3"
-        top = "#2ec4b6" if fem else "#f4f1ea"
-        hair_c = "#4a2f1b" if fem else "#a6a6a6"
-        pants = "#7b5ea7" if fem else "#3b4a63"
+        skin = "#f6c9a4" if fem else "#f0b98d"
+        skin_d = shade(skin, .12)
+        top = "#27b3a6" if fem else "#ffffff"
+        top_d = shade(top, .14)
+        hair_c = "#7a3b1d" if fem else "#e9e9ef"
+        hair_d = shade(hair_c, .18)
+        pants = "#6c4fa3" if fem else "#31415e"
+        shoe = "#ffffff" if fem else "#5b3a24"
+        iris = "#2f9e8f" if fem else "#4a6fa5"
 
-        def limb(px, py, w, h, col):
+        def limb(px, py, w, h, col, foot=None):
             pv = Dot([px, py, 0], radius=.01).set_opacity(0)
-            r = S(RoundedRectangle(corner_radius=min(w, h) / 2.5, width=w, height=h), col)
-            r.move_to([px, py - h / 2 + .03, 0])
-            return VGroup(pv, r)
+            r = S(RoundedRectangle(corner_radius=w / 2.2, width=w, height=h), col)
+            r.move_to([px, py - h / 2 + .04, 0])
+            parts = [pv, r]
+            if foot:
+                parts.append(S(Ellipse(width=w * 1.5, height=.3), foot).move_to([px + (.06 if px > 0 else -.06), py - h + .06, 0]))
+            return VGroup(*parts)
 
+        self.shadow = Ellipse(width=2.1, height=.32).set_fill(BLACK, .22).set_stroke(width=0).move_to([0, -1.76, 0])
+        self.leg_l = limb(-.3, -1.0, .36, .78, pants, shoe)
+        self.leg_r = limb(.3, -1.0, .36, .78, pants, shoe)
+
+        # hair behind head
         if fem:
-            hair_back = S(RoundedRectangle(corner_radius=.5, width=1.55, height=2.1), hair_c).move_to([0, .55, 0])
+            self.hair_back = VGroup(
+                S(RoundedRectangle(corner_radius=.45, width=1.95, height=1.55), hair_c).move_to([0, .9, 0]),
+                S(Circle(radius=.42), hair_c).move_to([-.98, 1.45, 0]),       # bun left
+                S(Circle(radius=.42), hair_c).move_to([.98, 1.45, 0]),        # bun right
+            )
         else:
-            hair_back = S(Ellipse(width=1.4, height=1.0), hair_c).move_to([0, 1.3, 0])
-        self.leg_l, self.leg_r = limb(-.27, -.95, .34, .85, pants), limb(.27, -.95, .34, .85, pants)
-        body = S(RoundedRectangle(corner_radius=.3, width=1.2, height=1.5), top).move_to([0, -.3, 0])
-        parts = [hair_back, self.leg_l, self.leg_r]
+            self.hair_back = VGroup(*[S(Circle(radius=r), hair_c).move_to([x, y, 0]) for x, y, r in
+                                      [(-.8, 1.1, .38), (-.55, 1.62, .42), (-.1, 1.88, .44), (.42, 1.78, .42), (.8, 1.25, .38), (.9, .7, .28), (-.92, .65, .26)]])
+        # torso
+        self.body = VGroup(S(RoundedRectangle(corner_radius=.32, width=1.28, height=1.35), top).move_to([0, -.35, 0]))
+        self.body.add(S(RoundedRectangle(corner_radius=.2, width=.34, height=1.2), top_d, op=.55, sw=0).move_to([.46, -.38, 0]))
         if fem:
-            parts.append(S(Polygon([-.6, -.6, 0], [.6, -.6, 0], [.9, -1.25, 0], [-.9, -1.25, 0]), pants))
-        parts.append(body)
-        if not fem:
-            parts.append(Line([0, .45, 0], [0, -1.05, 0]).set_stroke(INK, 2))
-        self.arm_l, self.arm_r = limb(-.72, .3, .28, 1.1, top), limb(.72, .3, .28, 1.1, top)
-        parts += [self.arm_l, self.arm_r]
-        self.head = S(Circle(radius=.62), skin).move_to([0, .85, 0])
-        self.eyes_w = VGroup(*[S(Circle(radius=.11), WHITE, sw=2).move_to([x, .92, 0]) for x in (-.22, .22)])
-        self.pupils = VGroup(*[S(Circle(radius=.055), INK, sw=0).move_to([x, .92, 0]) for x in (-.22, .22)])
-        self.brows = VGroup(Line([-.34, 1.12, 0], [-.1, 1.15, 0]).set_stroke(INK, 4), Line([.1, 1.15, 0], [.34, 1.12, 0]).set_stroke(INK, 4))
-        self.mouth = S(Ellipse(width=.28, height=.05), "#c0392b" if fem else "#6b2d2d", stroke="#6b2d2d", sw=1).move_to([0, .6, 0])
-        face = [self.head]
+            self.skirt = S(Polygon([-.62, -.72, 0], [.62, -.72, 0], [.95, -1.3, 0], [-.95, -1.3, 0]), pants)
+            self.body.add(S(Rectangle(width=.5, height=.12), "#ffd23f", sw=0).move_to([0, .1, 0]))      # collar band
+            self.body.add(S(Circle(radius=.09), "#ffd23f", sw=1).move_to([0, -.25, 0]))
+        else:
+            self.skirt = VGroup()
+            self.body.add(S(Polygon([-.3, .3, 0], [.3, .3, 0], [0, -.15, 0]), "#2b4a8a", sw=2))     # shirt
+            self.body.add(S(Polygon([-.34, .32, 0], [-.05, .32, 0], [-.2, -.2, 0]), WHITE, sw=2))   # collar l
+            self.body.add(S(Polygon([.34, .32, 0], [.05, .32, 0], [.2, -.2, 0]), WHITE, sw=2))      # collar r
+            self.body.add(S(Triangle().scale(.11).rotate(PI), "#e63946", sw=2).move_to([0, .02, 0]))  # tie
+            self.body.add(S(Rectangle(width=.3, height=.3), "#dfe3ea", sw=2).move_to([-.4, -.55, 0]))   # pocket
+            self.body.add(Line([-.46, -.4, 0], [-.46, -.1, 0]).set_stroke("#e63946", 4))                # pen
+            self.body.add(Line([0, -.2, 0], [0, -1.0, 0]).set_stroke(INK, 2))
+        # arms (sleeve + hand), pivot at shoulder
+        def arm(sx):
+            pv = Dot([sx * .72, .12, 0], radius=.01).set_opacity(0)
+            sl = S(RoundedRectangle(corner_radius=.15, width=.32, height=.95), top).move_to([sx * .72, -.35, 0])
+            hd = S(Circle(radius=.19), skin).move_to([sx * .72, -.86, 0])
+            return VGroup(pv, sl, hd)
+        self.arm_l, self.arm_r = arm(-1), arm(1)
+
+        # head
+        self.head = VGroup(S(Circle(radius=.9), skin).move_to([0, .95, 0]))
+        self.head.add(S(Circle(radius=.9), skin_d, op=.0, sw=0).move_to([0, .95, 0]))
+        for sx in (-1, 1):
+            self.head.add(S(Circle(radius=.16), skin).move_to([sx * .9, .9, 0]))  # ears
         if fem:
-            face.append(S(Ellipse(width=1.15, height=.4), hair_c, sw=2).move_to([0, 1.3, 0]))
-        face += [self.eyes_w, self.pupils, self.brows, self.mouth]
+            fringe = VGroup(S(Ellipse(width=1.9, height=.75), hair_c).move_to([0, 1.62, 0]),
+                            S(Circle(radius=.24), hair_c).move_to([-.6, 1.42, 0]),
+                            S(Circle(radius=.22), hair_c).move_to([.05, 1.5, 0]),
+                            S(Circle(radius=.22), hair_c).move_to([.62, 1.42, 0]))
+            ribbon = VGroup(S(Triangle().scale(.2).rotate(PI / 2), "#ff4d6d").move_to([-.88, 1.7, 0]),
+                            S(Triangle().scale(.2).rotate(-PI / 2), "#ff4d6d").move_to([-.56, 1.7, 0]),
+                            S(Circle(radius=.07), "#ff4d6d").move_to([-.72, 1.7, 0]))
+            self.hair_front = VGroup(fringe, ribbon)
+        else:
+            self.hair_front = VGroup(S(Ellipse(width=1.3, height=.36), hair_c).move_to([0, 1.78, 0]),
+                                     S(Triangle().scale(.2).move_to([-.3, 1.92, 0]), hair_c), S(Triangle().scale(.22).move_to([.25, 1.95, 0]).rotate(.2), hair_c))
+        # eyes
+        ex = .33
+        self.eyes_w = VGroup(*[S(Ellipse(width=.46, height=.58), WHITE, sw=2).move_to([sx * ex, 1.0, 0]) for sx in (-1, 1)])
+        self.irises = VGroup(*[S(Circle(radius=.17), iris, sw=0).move_to([sx * ex, .98, 0]) for sx in (-1, 1)])
+        self.pupils = VGroup(*[S(Circle(radius=.09), INK, sw=0).move_to([sx * ex, .98, 0]) for sx in (-1, 1)])
+        self.glints = VGroup(*[S(Circle(radius=.05), WHITE, sw=0).move_to([sx * ex + .06, 1.06, 0]) for sx in (-1, 1)])
+        self.happy_eyes = VGroup(*[Arc(radius=.2, start_angle=.35, angle=PI - .7).set_stroke(INK, 7).move_to([sx * ex, 1.0, 0]) for sx in (-1, 1)])
+        self.eyes = VGroup(self.eyes_w, self.irises, self.pupils, self.glints)
+        brow_c = hair_d if fem else "#7d8392"
+        by = 1.43 if fem else 1.5
+        self.brows = VGroup(Line([-.58, by - .05, 0], [-.12, by, 0]).set_stroke(brow_c, 8), Line([.12, by, 0], [.58, by - .05, 0]).set_stroke(brow_c, 8))
+        self.lashes = VGroup(*[Line([sx * ex + sx * .2, 1.08, 0], [sx * ex + sx * .32, 1.2, 0]).set_stroke(INK, 4) for sx in (-1, 1)]) if fem else VGroup()
+        self.cheeks = VGroup(*[Circle(radius=.15).set_fill("#ff7a8a", .45).set_stroke(width=0).move_to([sx * .6, .6, 0]) for sx in (-1, 1)])
+        self.nose = S(Ellipse(width=.16, height=.12), shade(skin, .1), sw=1.5).move_to([0, .78, 0])
         if not fem:
-            face.append(VGroup(*[Circle(radius=.17).set_fill(opacity=0).set_stroke(INK, 2).move_to([x, .92, 0]) for x in (-.22, .22)]))
-        self.face = VGroup(*face)
-        parts.append(self.face)
-        self.g = VGroup(*parts)
+            self.nose = S(Circle(radius=.12), "#e9967a", sw=1.5).move_to([0, .8, 0])
+        # mouth: smile arc + open mouth + frown arc
+        self.smile = Arc(radius=.3, start_angle=PI + .5, angle=PI - 1.0).set_stroke("#6b2d2d", 5).move_to([0, .46, 0])
+        self.frown = Arc(radius=.25, start_angle=.5, angle=PI - 1.0).set_stroke("#6b2d2d", 5).move_to([0, .42, 0])
+        self.mouth = S(Ellipse(width=.3, height=.3), "#8e2f3a", stroke="#5a1d25", sw=2).move_to([0, .46, 0])
+        self.tongue = S(Ellipse(width=.2, height=.12), "#ff8fa3", sw=0).move_to([0, .4, 0])
+        # accessories
+        acc = []
+        if not fem:
+            acc.append(VGroup(*[Circle(radius=.27).set_fill(opacity=0).set_stroke("#2b2f3a", 5).move_to([sx * ex, 1.0, 0]) for sx in (-1, 1)],
+                              Line([-.06, 1.02, 0], [.06, 1.02, 0]).set_stroke("#2b2f3a", 5)))
+            acc.append(VGroup(S(Ellipse(width=.5, height=.17), "#f4f4f8", sw=2).move_to([-.14, .68, 0]), S(Ellipse(width=.5, height=.17), "#f4f4f8", sw=2).move_to([.14, .68, 0])))  # mustache
+        self.acc = VGroup(*acc)
+        self.sweat = VGroup(S(Triangle().scale(.1).stretch(1.4, 1).move_to([0, .1, 0]), "#7fd1ff", sw=1.5), S(Circle(radius=.1), "#7fd1ff", sw=1.5).move_to([0, -.04, 0])).move_to([.95, 1.5, 0])
+        self.burst = VGroup(*[Line([.0, .15, 0], [.0, .5, 0]).set_stroke(YEL, 7).rotate(a, about_point=[0, 0, 0]) for a in (-.7, 0, .7)]).move_to([1.1, 1.95, 0])
+
+        self.face = VGroup(self.nose, self.cheeks, self.eyes, self.happy_eyes, self.lashes, self.brows, self.smile, self.frown, self.mouth, self.tongue, self.acc)
+        self.headg = VGroup(self.head, self.face, self.hair_front, self.sweat, self.burst)
+        self.g = VGroup(self.shadow, self.hair_back, self.leg_l, self.leg_r, self.skirt, self.body, self.arm_l, self.arm_r, self.headg)
         self.g.save_state()
 
     def pose(self, t, x, ground, scale=1.15, speaking=False, amp=0.0, point=0, emote=None, ep=0.0,
-             walking=False, calm=False, wave_hand=False):
+             walking=False, calm=False, wave_hand=False, look=0.0):
         g = self.g
         g.restore()
-        jump = 0.0
+        jump, squash = 0.0, 0.0
         if walking:
-            a = .4 * np.sin(8 * t)
+            a = .45 * np.sin(8 * t)
             self.leg_l.rotate(a, about_point=self.leg_l[0].get_center())
             self.leg_r.rotate(-a, about_point=self.leg_r[0].get_center())
-            bob = .06 * abs(np.sin(8 * t))
+            bob = .09 * abs(np.sin(8 * t))
         else:
-            bob = .03 * np.sin(2.2 * t + (0 if not self.fem else 1.3))
+            bob = .035 * np.sin(2.2 * t + (0 if not self.fem else 1.3))
         for arm, s in ((self.arm_l, -1), (self.arm_r, 1)):
             ang = 0.0
             if walking:
-                ang = s * .35 * np.sin(8 * t)
+                ang = s * .5 * np.sin(8 * t)
             elif wave_hand and s == 1:
-                ang = 2.3 + .35 * np.sin(9 * t)
+                ang = 2.5 + .4 * np.sin(10 * t)
             elif point == s:
-                ang = s * (1.35 + .05 * np.sin(5 * t))
+                ang = s * (1.5 + .06 * np.sin(5 * t))
             elif speaking:
-                ang = s * (.1 + .6 * amp) * (.6 + .4 * np.sin(3.3 * t + (1 if s > 0 else 0)))
+                ang = s * (.12 + .75 * amp) * (.55 + .45 * np.sin(3.6 * t + (1 if s > 0 else 0)))
+            else:
+                ang = s * (.08 + .05 * np.sin(2.0 * t + s))
             if emote == "shock":
-                ang = s * (.4 + 1.3 * ep)
+                ang = s * (.5 + 1.9 * ep)
             elif emote == "happy":
-                ang = s * (.3 + 1.6 * ep * (.5 + .5 * np.sin(10 * t)))
+                ang = s * (.4 + 1.9 * ep * (.55 + .45 * np.sin(11 * t)))
+            elif emote == "think" and s == 1:
+                ang = s * (2.2 * ep + .1)
+            elif emote == "worried":
+                ang = s * (.3 + .9 * ep)
             arm.rotate(ang, about_point=arm[0].get_center())
-        h = .05 + (.34 * amp if speaking else 0)
-        w = .28
+        # ---- face
+        openness = .05 + (.5 * amp if speaking else 0)
+        smile_w = 1.0
+        eye_h, pupil_k, brow_up, brow_tilt = 1.0, 1.0, 0.0, 0.0
+        show = "smile"
         if emote == "shock":
-            h, w = max(h, .05 + .38 * ep), .22
-            for pu in self.pupils:
-                pu.scale(1 + .6 * ep)
-            self.brows.shift(UP * .12 * ep)
-            jump = .32 * max(0.0, np.sin(PI * clamp(ep * 1.0))) if ep < 1 else 0.0
+            openness, show, eye_h, pupil_k, brow_up = max(openness, .25 + .6 * ep), "open", 1 + .28 * ep, 1 - .45 * ep, .22 * ep
+            jump = .35 * max(0.0, np.sin(PI * clamp(ep))) if ep < 1 else 0.0
+            squash = -.05 * ep
         elif emote == "happy":
-            w, h = .2 + .28 * ep, max(h, .06)
-            jump = .12 * abs(np.sin(9 * t)) * ep
+            show, eye_h, smile_w, brow_up = ("open" if openness > .1 else "smile"), 1 - .5 * ep, 1 + .5 * ep, .08 * ep
+            jump = .15 * abs(np.sin(9 * t)) * ep
         elif emote == "worried":
-            w = .2
-            self.brows.rotate(.0)
-            self.brows.shift(UP * .05 * ep)
+            show, brow_tilt, brow_up = ("open" if openness > .12 else "frown"), .3 * ep, .1 * ep
         elif emote == "think":
-            self.pupils.shift(UP * .04 * ep + RIGHT * .03 * ep)
+            brow_up = .1 * ep
+        if show == "smile" and speaking and openness > .12:
+            show = "open"
+        self.smile.set_opacity(1 if show == "smile" else 0)
+        self.frown.set_opacity(1 if show == "frown" else 0)
+        op = 1 if show == "open" else 0
+        self.mouth.set_fill(opacity=op).set_stroke(opacity=op)
+        self.tongue.set_fill(opacity=op if openness > .22 else 0)
+        if op:
+            self.mouth.stretch_to_fit_height(max(.06, min(.62, openness * 1.05)))
+            self.mouth.stretch_to_fit_width(.3 + (.1 if emote == "happy" else 0) - (.06 if emote == "shock" else 0))
+            self.mouth.move_to([0, .46 - (.04 if openness > .3 else 0), 0])
+            self.tongue.move_to([0, .46 - openness * .35, 0])
+        self.smile.stretch(smile_w, 0)
+        self.eyes_w.stretch(eye_h, 1)
+        for pu in self.pupils:
+            pu.scale(pupil_k)
+        lk = look + (.05 * ep if emote == "think" else 0)
+        for grp in (self.irises, self.pupils, self.glints):
+            grp.shift(RIGHT * lk * .08 + (UP * .05 * ep if emote == "think" else 0))
+        hap = emote == "happy" and ep > .35
+        self.happy_eyes.set_stroke(opacity=1 if hap else 0)
+        if hap:
+            self.eyes.set_opacity(0)
+            self.lashes.set_opacity(0)
+        self.brows.shift(UP * brow_up)
+        if brow_tilt:
+            self.brows[0].rotate(-brow_tilt); self.brows[1].rotate(brow_tilt)
+        if emote == "think":
             self.brows[1].shift(UP * .1 * ep)
-        self.mouth.stretch_to_fit_width(w)
-        self.mouth.stretch_to_fit_height(h)
-        if (t % 3.3) < .12:
-            self.eyes_w.stretch_to_fit_height(.03)
-            self.pupils.set_opacity(0)
-        tilt = .13 * ep if emote == "think" else (.04 * np.sin(3 * t) if speaking else .05 * np.sin(2.4 * t))
-        self.face.rotate(tilt, about_point=[0, .3, 0])
-        g.scale(scale * (1 + .03 * amp if speaking else 1), about_point=[0, -1.75, 0])
+        if emote == "shock":
+            self.sweat.set_opacity(ep); self.burst.set_opacity(ep)
+        else:
+            self.sweat.set_opacity(0); self.burst.set_opacity(0)
+        if (t % 3.1) < .13:  # blink
+            self.eyes_w.stretch_to_fit_height(.04)
+            for grp in (self.irises, self.pupils, self.glints):
+                grp.set_opacity(0)
+        tilt = .1 * ep if emote == "think" else (.05 * np.sin(3 * t) if speaking else .04 * np.sin(2.4 * t))
+        self.headg.rotate(tilt, about_point=[0, .3, 0])
+        self.headg.shift(UP * (.04 * amp if speaking else 0))
+        self.hair_back.rotate(.025 * np.sin(2.5 * t + 1), about_point=[0, 1.6, 0])
+        sc = scale * (1 + (.035 * amp if speaking else 0) + squash)
+        g.scale(sc, about_point=[0, -1.75, 0])
         g.shift([x, ground + 1.75 + bob + jump, 0])
 
 
@@ -621,7 +750,22 @@ def update_ambient(amb, t):
 
 
 # ---------------------------------------------------------------- shot scene
-class SceneRenderer(Scene):
+def soft_vignette():
+    g = VGroup()
+    for i in range(9):
+        g.add(Annulus(inner_radius=5.2 + .38 * i, outer_radius=14).set_fill(BLACK, .045).set_stroke(width=0))
+    return g
+
+
+def ease_io(x):
+    x = clamp(x)
+    return x * x * (3 - 2 * x)
+
+
+WIPE_COL = {"lab": "#4a90d9", "space": "#7b5ea7", "ocean": "#1b6a96", "city": "#f2b63d", "nature": "#34c759", "bedroom": "#ff7ad9"}
+
+
+class SceneRenderer(MovingCameraScene):
     def construct(self):
         spec = json.load(open(os.environ["SCENE_JSON"], encoding="utf-8"))
         dur = float(os.environ["SCENE_DUR"])
@@ -632,6 +776,7 @@ class SceneRenderer(Scene):
         side = 1 if os.environ.get("SHOT_SIDE", "1") == "1" else -1
         fps = config.frame_rate
         env = envelope(os.environ.get("SCENE_AUDIO"), fps)
+        rnd = random.Random(idx * 7919 + 13)
 
         kind = spec.get("kind") or "scene"
         layout = spec.get("layout") or "duo"
@@ -640,54 +785,72 @@ class SceneRenderer(Scene):
             speaker = "guide"
         props = [p for p in (spec.get("props") or []) if isinstance(p, dict)][:2]
         reaction = spec.get("reaction") or "none"
+        punch = str(spec.get("punch") or "").strip()[:28]
+        bdname = spec.get("backdrop") or "lab"
         self.camera.background_color = INK
-        bd, amb = backdrop(spec.get("backdrop") or "lab")
+        bd, amb = backdrop(bdname)
         self.add(bd)
         for _, m, _ in amb:
             self.add(m)
 
-        # --- characters
-        chars, tx = {}, {}
+        # --- characters: name -> (x, ground, scale)
+        cfg = {}
         if layout == "duo":
-            chars = {"guide": Char("guide"), "you": Char("you")}
-            tx = {"guide": -4.9, "you": 4.9}
-        elif layout in ("solo", "walk"):
-            chars = {speaker: Char(speaker)}
-            tx = {speaker: -4.4 * side}
+            cfg = {"guide": (-4.5, GROUND, 1.15), "you": (4.5, GROUND, 1.15)}
+        elif layout == "solo":
+            cfg = {speaker: (-4.4 * side, GROUND, 1.2)}
+        elif layout == "walk":
+            cfg = {speaker: (-4.4 * side, GROUND, 1.1)}
+        elif layout == "closeup":
+            cfg = {speaker: (-3.9 * side, -3.2, 1.5)}
+        elif layout == "prop_only":
+            cfg = {"guide": (-5.5, -2.65, .72)}
+        chars = {k: Char(k) for k in cfg}
         for c in chars.values():
             self.add(c.g)
 
         # --- props
-        cy = 0.9
+        cy = 0.75
         if layout == "walk":
-            cy = 1.9
+            cy = 2.55
+            for p in props:
+                p["label"] = ""
         if layout == "prop_only":
+            cy = 0.6
+        if layout == "closeup":
             cy = 0.5
-        if kind in ("diagram",):
+        if kind == "diagram":
             cy = -0.2
         if kind in ("title", "stat"):
             cy = 0.1
-        cx = {"duo": 0.0, "solo": 1.4 * side, "walk": 0.0, "prop_only": 0.0}.get(layout, 0.0)
-        sc1 = 1.45 if layout == "prop_only" else (1.15 if kind in ("title", "stat", "diagram") else 1.3)
+        cx = {"duo": 0.0, "solo": 1.5 * side, "walk": 0.0, "prop_only": 0.4, "closeup": 3.0 * side}.get(layout, 0.0)
+        sc1 = 1.5 if layout in ("prop_only", "closeup") else (1.2 if kind in ("title", "stat", "diagram") else 1.25)
         if layout == "walk":
-            sc1 = .85
+            sc1 = .7
         slots = []
         if len(props) == 1:
             slots.append(Slot(props[0], cx, cy, sc1, .35))
         elif len(props) == 2:
             for i, p in enumerate(props):
-                slots.append(Slot(p, cx + (-1.9 if i == 0 else 1.9) * (sc1 / 1.3), cy, sc1 * .78, .35 + .7 * i))
+                slots.append(Slot(p, cx + (-2.0 if i == 0 else 2.0) * (sc1 / 1.3), cy, sc1 * .78, .35 + .7 * i))
         for s_ in slots:
             for m in s_.mobs():
                 self.add(m)
 
         # --- kind extras
-        pops = []
+        pops, rays = [], None
         if kind in ("title", "stat"):
-            main = T(spec.get("text") or spec.get("value") or "", 64 if kind == "title" else 96, YEL if kind == "stat" else WHITE)
-            fit(main, 11).move_to([0, 2.7, 0])
-            sub = T(spec.get("subtitle") or spec.get("label") or "", 30, WHITE)
-            fit(sub, 11).move_to([0, 1.7 if kind == "title" else 1.75, 0])
+            rays = VGroup(*[Polygon([0, 0, 0], [12 * np.cos(a), 12 * np.sin(a), 0], [12 * np.cos(a + TAU / 36), 12 * np.sin(a + TAU / 36), 0]).set_fill(WHITE, .07).set_stroke(width=0)
+                            for a in np.arange(0, TAU, TAU / 18)])
+            rays.move_to([0, .3, 0])
+            self.add(rays)
+            self.bring_to_back(rays)
+            self.bring_to_back(bd)
+            tx0 = 1.7 * side if layout in ("solo", "closeup") else 0.0
+            main = T(spec.get("text") or spec.get("value") or "", 84 if kind == "title" else 120, YEL if kind == "stat" else WHITE, heavy=True)
+            fit(main, 9.2 if tx0 else 11).move_to([tx0, 2.35, 0])
+            sub = T(spec.get("subtitle") or spec.get("label") or "", 36, WHITE)
+            fit(sub, 9.2 if tx0 else 11).move_to([tx0, 1.4, 0])
             for m, t0 in ((main, .2), (sub, .8)):
                 m.save_state()
                 pops.append((m, t0))
@@ -696,34 +859,48 @@ class SceneRenderer(Scene):
             nodes = (spec.get("nodes") or [])[:4]
             grp = VGroup()
             for n in nodes:
-                r = box(2.3, 1.1, WHITE, sc=RED, sw=4, r=.18)
-                tt = fit(T(textwrap.fill(str(n), 15), 24, INK, outline=False), 2.1).move_to(r.get_center())
+                r = box(2.4, 1.05, WHITE, sc=RED, sw=5, r=.2)
+                tt = fit(T(textwrap.fill(str(n), 15), 28, INK, outline=False, heavy=True), 2.2).move_to(r.get_center())
                 grp.add(VGroup(r, tt))
-            grp.arrange(RIGHT, buff=.6)
-            fit(grp, 10.5).move_to([0, 2.2, 0])
-            head = spec.get("heading")
+            grp.arrange(RIGHT, buff=.65)
+            fit(grp, 10.8).move_to([0, 2.5, 0])
             for i, nd in enumerate(grp):
                 t0 = .5 + i * max(.8, (dur - 1.5) / (len(nodes) + 1))
                 nd.save_state()
                 pops.append((nd, t0))
                 self.add(nd)
                 if i:
-                    a = Arrow(grp[i - 1].get_right(), nd.get_left(), buff=.05, color=YEL, stroke_width=6, tip_length=.2)
+                    a = Arrow(grp[i - 1].get_right(), nd.get_left(), buff=.05, color=YEL, stroke_width=7, tip_length=.22)
                     a.save_state()
                     pops.append((a, t0))
                     self.add(a)
 
-        # --- HUD
+        # --- punch word
+        pun, punch_rays = None, None
+        punch_t = max(.9, .38 * dur)
+        if punch and kind == "scene" and dur > 2.6:
+            pun = fit(T(punch.upper(), 90, YEL, heavy=True), 6.8 if layout == "closeup" else 10)
+            pun.set_stroke(BLACK, 14, background=True)
+            pun.move_to([3.4 * side if layout == "closeup" else 0, 2.55, 0]).rotate(-.05 * rnd.choice([1, -1]))
+            pun.save_state()
+            self.add(pun)
+            punch_rays = VGroup(*[Line([0, 0, 0], [1.4, 0, 0]).rotate(a).set_stroke(WHITE, 5) for a in np.arange(0, TAU, TAU / 14)])
+            punch_rays.move_to(pun.get_center()).save_state()
+            self.add(punch_rays)
+
+        # --- HUD (follows the camera)
+        hud = []
+        vig = soft_vignette()
+        hud.append(vig)
         tag_t = fit(T(topic, 22, WHITE, outline=False), 5.2)
         tag_p = box(tag_t.width + .5, .62, INK, 0, 0, op=.8, r=.12)
         tag_p.move_to([-6.9 + tag_p.width / 2, 3.45, 0])
         tag_t.move_to(tag_p.get_center())
         bar_bg = box(FW, .12, "#333333", 0, 3.94)
         bar = box(FW, .12, YEL, 0, 3.94)
-        self.add(tag_p, tag_t, bar_bg, bar)
+        hud += [tag_p, tag_t, bar_bg, bar]
 
-        # --- captions
-        parts = chunks_of(spec.get("narration"), 6)
+        parts = chunks_of(spec.get("narration"), 5)
         wts = [len(p) + 1 for p in parts]
         cuts, acc = [], 0.1
         usable = max(.5, dur - .3)
@@ -732,34 +909,90 @@ class SceneRenderer(Scene):
             cuts.append(acc)
         caps = []
         for p in parts:
-            c = fit(T(p, 36, WHITE), 11.6).move_to([0, -3.3, 0])
+            c = fit(T(p, 44, WHITE, heavy=True), 11.6).move_to([0, -3.3, 0])
+            c.set_stroke(BLACK, 8, background=True)
             c.set_opacity(0)
             caps.append(c)
-        cap_bg = box(12.2, 1.0, INK, 0, -3.3, op=.55, r=.18)
-        self.add(cap_bg, *caps)
+        cap_bg = box(12.4, 1.05, INK, 0, -3.3, op=.5, r=.2)
+        hud += [cap_bg] + caps
+        for m in hud:
+            self.add(m)
+            m.save_state()
 
-        st = {"cap": -1, "amp": 0.0}
+        # --- wipe transition
+        wipe = None
+        if enter:
+            wipe = Polygon([-9, -6, 0], [8, -6, 0], [10.5, 6, 0], [-6.5, 6, 0]).set_fill(WIPE_COL.get(bdname, "#4a90d9"), 1).set_stroke(width=0)
+            wipe.move_to([0, 0, 0]).save_state()
+            self.add(wipe)
+
+        # --- camera plan
+        cam = rnd.choice(["push", "push", "pull", "pan", "hold"])
+        if kind in ("title",) or layout == "closeup":
+            cam = "push"
+        if layout == "walk":
+            cam = "hold"
+        fx = 0.0
+        if cfg.get(speaker):
+            fx = cfg[speaker][0]
+        react_t0 = .55 * dur
+        cues = []
+        if enter:
+            cues.append((0.02, "whoosh"))
+        for i, s_ in enumerate(slots):
+            cues.append((s_.t_in, "pop"))
+        if kind == "stat":
+            cues.append((.25, "ding"))
+        if reaction == "shock":
+            cues.append((react_t0, "boom"))
+        if pun is not None:
+            cues.append((punch_t, "hit"))
+        json.dump(cues, open(os.environ.get("SCENE_CUES", "cues.json"), "w"))
+
+        st = {"cap": -1, "amp": 0.0, "cap_t": 0.0}
         listener = None
         if layout == "duo":
             listener = "you" if speaker == "guide" else "guide"
-        react_t0 = .5 * dur
+        frame = self.camera.frame
+
+        def camera_state(t):
+            u = clamp(t / dur)
+            z, px, py = 1.0, 0.0, 0.0
+            if cam == "push":
+                z = 1 + .11 * ease_io(u)
+            elif cam == "pull":
+                z = 1.11 - .11 * ease_io(u)
+            elif cam == "pan":
+                z = 1.08
+            if pun is not None and kind == "scene":
+                z += .07 * np.sin(PI * clamp((t - punch_t) / .45))
+            if reaction == "shock" and react_t0 < t < react_t0 + .5:
+                z += .1 * np.sin(PI * (t - react_t0) / .5)
+                px, py = .06 * np.sin(60 * t), .05 * np.cos(55 * t)
+            mx, my = FW / 2 * (1 - 1 / z), FH / 2 * (1 - 1 / z)
+            if cam == "pan":
+                px += mx * (-1 + 2 * ease_io(u)) * side
+            else:
+                px += clamp(fx / (FW / 2), -1, 1) * mx * .8
+            return z, clamp(px, -mx, mx), clamp(py, -my, my)
 
         def tick(_m, dt):
             t = tick.t = getattr(tick, "t", 0.0) + dt
             update_ambient(amb, t)
-            # characters
+            if rays is not None:
+                rays.rotate(dt * .22, about_point=[0, .3, 0])
             e = float(env[min(len(env) - 1, int(t * fps))])
-            st["amp"] = .6 * st["amp"] + .4 * e
+            st["amp"] = .55 * st["amp"] + .45 * e
+            sx_ = cfg[speaker][0] if speaker in cfg else 0.0
             for k, ch in chars.items():
-                x_t = tx[k]
+                x_t, gnd, scl = cfg[k]
                 walking, x = False, x_t
                 if layout == "walk":
                     x = -6.8 * side + 13.6 * side * clamp(t / dur)
                     walking = True
-                elif enter:
+                elif enter and layout not in ("closeup", "prop_only"):
                     f = clamp(t / .9)
-                    off = -(1 - f) * (4.2 if x_t < 0 else -4.2)
-                    x = x_t + off
+                    x = x_t - (1 - f) * (4.2 if x_t < 0 else -4.2)
                     walking = f < 1
                 spk = (k == speaker)
                 point = 0
@@ -768,12 +1001,17 @@ class SceneRenderer(Scene):
                 emote, ep = None, 0.0
                 if reaction != "none":
                     tgt = listener if listener else speaker
-                    if k == tgt and react_t0 < t < react_t0 + 1.4:
-                        emote, ep = reaction, clamp((t - react_t0) / .5) * (1 - clamp((t - react_t0 - 1.0) / .4))
+                    if k == tgt and react_t0 < t < react_t0 + 1.5:
+                        emote, ep = reaction, clamp((t - react_t0) / .45) * (1 - clamp((t - react_t0 - 1.1) / .4))
                         if reaction == "shock":
-                            ep = clamp((t - react_t0) / 1.4)
-                ch.pose(t, x, GROUND, speaking=spk, amp=st["amp"] if spk else 0.0, point=point, emote=emote, ep=ep,
-                        walking=walking, wave_hand=(kind == "title" and spk and t < 2.5))
+                            ep = clamp((t - react_t0) / .5) * (1 - clamp((t - react_t0 - 1.1) / .4))
+                look = 0.0
+                if layout == "duo" and not spk:
+                    look = 1 if sx_ > x else -1
+                elif slots and spk:
+                    look = 1 if cx > x else -1
+                ch.pose(t, x, gnd, scale=scl, speaking=spk, amp=st["amp"] if spk else 0.0, point=point, emote=emote, ep=ep,
+                        walking=walking, wave_hand=(kind == "title" and spk and t < 2.5), look=look)
             for s_ in slots:
                 s_.update(t, dur)
                 if s_.tag:
@@ -783,15 +1021,38 @@ class SceneRenderer(Scene):
             for m, t0 in pops:
                 m.restore()
                 m.scale(max(ease_back((t - t0) / .4), 1e-3))
-            # HUD + captions
-            w = max(.02, FW * (idx + clamp(t / dur)) / total)
-            bar.stretch_to_fit_width(w)
-            bar.move_to([-FW / 2 + w / 2, 3.94, 0])
+            if pun is not None:
+                pun.restore()
+                punch_rays.restore()
+                x = (t - punch_t) / .3
+                vis = 0.0 if t < punch_t else (1.0 if t < punch_t + 1.5 else 0.0)
+                pun.scale(max(ease_back(x), 1e-3) * (1 + .03 * np.sin(14 * t)) if vis else 1e-3)
+                punch_rays.set_stroke(opacity=(1 - clamp((t - punch_t) / .45)) * vis)
+                punch_rays.scale(1 + 1.2 * clamp((t - punch_t) / .45))
+            # camera
+            z, px, py = camera_state(t)
+            frame.set(width=FW / z).move_to([px, py, 0])
+            # HUD follows camera
             k = next((i for i, c in enumerate(cuts) if t < c), len(caps) - 1)
             if k != st["cap"]:
                 st["cap"] = k
-                for i, c in enumerate(caps):
-                    c.set_opacity(1 if i == k else 0)
+                st["cap_t"] = t
+            w = max(.02, FW * (idx + clamp(t / dur)) / total)
+            for m in hud:
+                m.restore()
+            bar.stretch_to_fit_width(w)
+            bar.move_to([-FW / 2 + w / 2, 3.94, 0])
+            for i, c in enumerate(caps):
+                c.set_opacity(1 if i == k else 0)
+            pop = 1 + .22 * max(0.0, 1 - (t - st["cap_t"]) / .18)
+            caps[k].scale(pop)
+            for m in hud:
+                m.scale(1 / z, about_point=ORIGIN).shift([px, py, 0])
+            if wipe is not None:
+                wipe.restore()
+                f = clamp(t / .38)
+                wipe.shift([ease_io(f) * 19 * 1 / z + px, py, 0])
+                wipe.set_opacity(1 if f < 1 else 0)
 
         clock = Mobject()
         clock.add_updater(tick)
@@ -804,8 +1065,8 @@ class SceneRenderer(Scene):
 
 # ---------------------------------------------------------------- thumbnail
 THEMES = {
-    "red": ("#5c0a0a", "#ff5a2e"), "blue": ("#06214d", "#1fa2ff"), "purple": ("#2b0a4d", "#c04bff"),
-    "green": ("#06361f", "#2ee66b"), "gold": ("#4a2c00", "#ffb703"),
+    "red": ("#3d0606", "#ff3b1f"), "blue": ("#041a40", "#1fa2ff"), "purple": ("#230a45", "#c04bff"),
+    "green": ("#04301b", "#2ee66b"), "gold": ("#3d2400", "#ffb703"),
 }
 
 
@@ -814,44 +1075,68 @@ class ThumbScene(Scene):
         sp = json.load(open(os.environ["THUMB_JSON"], encoding="utf-8"))
         c1, c2 = THEMES.get(sp.get("theme") or "red", THEMES["red"])
         bg = Rectangle(width=FW + .2, height=FH + .2)
-        bg.set_fill([c1, c2], 1)
+        bg.set_fill([c1, c2, c1], 1)
         bg.set_stroke(width=0)
-        bg.set_sheen_direction(DR)
+        bg.set_sheen_direction(RIGHT)
         self.add(bg)
-        ic_x, ic_y = 3.7, -.2
-        for i in range(16):  # sunburst
-            a = i * TAU / 16
-            tri = Polygon([ic_x, ic_y, 0], [ic_x + 12 * np.cos(a), ic_y + 12 * np.sin(a), 0],
-                          [ic_x + 12 * np.cos(a + TAU / 32), ic_y + 12 * np.sin(a + TAU / 32), 0])
-            tri.set_fill(WHITE, .10 if i % 2 else .04).set_stroke(width=0)
+        ic_x, ic_y = 3.5, -1.2
+        # sunburst from the icon
+        for i in range(24):
+            a = i * TAU / 24
+            tri = Polygon([ic_x, ic_y, 0], [ic_x + 14 * np.cos(a), ic_y + 14 * np.sin(a), 0],
+                          [ic_x + 14 * np.cos(a + TAU / 48), ic_y + 14 * np.sin(a + TAU / 48), 0])
+            tri.set_fill(WHITE, .16 if i % 2 else .03).set_stroke(width=0)
             self.add(tri)
-        for r, o in ((3.3, .08), (2.7, .12), (2.2, .18)):
-            self.add(Circle(radius=r).move_to([ic_x, ic_y, 0]).set_fill(c2, o).set_stroke(width=0))
+        for r, o in ((3.9, .10), (3.3, .16), (2.7, .24)):
+            self.add(Circle(radius=r).move_to([ic_x, ic_y, 0]).set_fill("#ffffff", o).set_stroke(width=0))
+        # main icon, huge, in "full effect" state
         g, spf = make_icon(sp.get("icon") or "warning")
         if spf:
             spf(1.0, 3.0)
-        g.scale(1.8).move_to([ic_x, ic_y, 0])
-        ring = Circle(radius=2.45).move_to([ic_x, ic_y, 0]).set_fill(opacity=0).set_stroke("#ff2d2d", 12)
-        self.add(g, ring)
+        g.scale(1.5).move_to([ic_x, ic_y, 0]).rotate(.08)
+        sh = g.copy()
+        for m_ in sh.family_members_with_points():
+            m_.set_fill(BLACK, .35 if m_.get_fill_opacity() > 0 else 0)
+            m_.set_stroke(BLACK, opacity=.35 if m_.get_stroke_width() > 0 else 0)
+        sh.shift([.14, -.14, 0])
+        ring = Circle(radius=2.1).move_to([ic_x, ic_y, 0]).set_fill(opacity=0).set_stroke("#ff2d2d", 14)
+        self.add(sh, g, ring)
+        # optional second icon
+        ic2 = sp.get("icon2") or ""
+        if ic2 and ic2 in ICONS:
+            g2, sp2 = make_icon(ic2)
+            if sp2:
+                sp2(1.0, 3.0)
+            g2.scale(.85).move_to([ic_x - 3.2, ic_y - .9, 0])
+            self.add(Circle(radius=1.0).move_to(g2.get_center()).set_fill("#ffffff", .95).set_stroke("#ff2d2d", 7), g2)
+        # shocked character, bottom-left, cropped by the frame edge
         who = sp.get("character") or "you"
         ch = Char(who if who in ("guide", "you") else "you")
-        ch.pose(1.0, -4.6, -5.3, scale=1.9, speaking=True, amp=1.0, emote="shock", ep=1.0)
+        ch.pose(1.0, -5.1, -5.0, scale=1.9, speaking=True, amp=1.0, emote="shock", ep=1.0)
         self.add(ch.g)
+        # headline
         words = str(sp.get("text") or "WOW").upper().split()
         lines, line = [], ""
         for w in words:
-            if len(line) + len(w) < 11:
-                line = (line + " " + w).strip()
-            else:
+            if line and len(line) + len(w) >= 12:
                 lines.append(line)
                 line = w
+            else:
+                line = (line + " " + w).strip()
         lines.append(line)
         lines = lines[:2]
-        ys = [3.0, 1.75]
-        cols = [WHITE, YEL]
+        ys = [2.85, 1.35] if len(lines) == 2 else [2.2]
+        cols = ["#ffffff", "#ffd23f"]
         for i, ln in enumerate(lines):
-            t = T(ln, 100, cols[i % 2])
-            t.set_stroke(BLACK, 12, background=True)
-            fit(t, 8.6)
-            t.move_to([-2.4, ys[i], 0]).rotate(-.03)
+            t = T(ln, 150, cols[i % 2], heavy=True)
+            t.set_stroke(BLACK, 22, background=True)
+            fit(t, 8.3)
+            t.move_to([2.55, ys[i], 0]).rotate(-.03)
             self.add(t)
+        # arrow from the headline towards the icon
+        ar = Arrow([-1.9, -1.0, 0], [ic_x - 2.5, ic_y + .1, 0], buff=0, color="#ff2d2d", stroke_width=18, tip_length=.6)
+        ar.set_stroke("#ffffff", 3, background=True)
+        self.add(ar)
+        # soft vignette for punch
+        for i in range(8):
+            self.add(Annulus(inner_radius=5.6 + .45 * i, outer_radius=15).set_fill(BLACK, .05).set_stroke(width=0))
