@@ -25,7 +25,7 @@ jobs:
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
           YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
           PRIVACY: private
-          MANIM_QUALITY: l
+          MANIM_QUALITY: m
       - uses: actions/upload-artifact@v4
         if: always()
         with:
