@@ -1281,6 +1281,44 @@ THEMES = {
 }
 
 
+def zombie_fig(scale=1.0, x=0.0, ground=0.0, silhouette=False, arms_dir=-1):
+    """Cartoon zombie: green skin, sunken eyes, open mouth with teeth, torn shirt, arms stretched out."""
+    skin, shirt, pants = ("#0b0408", "#0b0408", "#0b0408") if silhouette else ("#8fcf7a", "#6d7b8f", "#4a3f6b")
+    sk = lambda m, c, sw=3: m.set_fill(c, 1).set_stroke("#10101c" if not silhouette else c, 0 if silhouette else sw)
+    parts = []
+    legs = VGroup(sk(RoundedRectangle(corner_radius=.15, width=.42, height=1.2), pants).move_to([-.3, -1.1, 0]),
+                  sk(RoundedRectangle(corner_radius=.15, width=.42, height=1.2), pants).move_to([.3, -1.1, 0]))
+    torso = sk(RoundedRectangle(corner_radius=.3, width=1.35, height=1.5), shirt).move_to([0, -.2, 0])
+    parts += [legs, torso]
+    if not silhouette:
+        hem = Polygon([-.68, -.9, 0], [-.45, -1.15, 0], [-.25, -.88, 0], [0, -1.2, 0], [.25, -.9, 0], [.48, -1.18, 0], [.68, -.9, 0])
+        sk(hem, shirt, 0)
+        tear = Polygon([.1, .3, 0], [.5, .1, 0], [.45, -.3, 0], [.05, -.1, 0])
+        sk(tear, skin, 2)
+        parts += [hem, tear]
+    for sy in (.35, -.05):
+        arm = sk(RoundedRectangle(corner_radius=.17, width=1.7, height=.34), shirt if sy > 0 else skin).move_to([arms_dir * 1.15, sy + .1, 0]).rotate(arms_dir * -.12 * (1 if sy > 0 else -1) )
+        hand = sk(Circle(radius=.24), skin).move_to([arms_dir * 2.05, sy + .1 + (.08 if sy > 0 else -.08), 0])
+        parts += [arm, hand]
+    head = sk(Circle(radius=.95), skin).move_to([.05, 1.35, 0]).rotate(.12)
+    parts.append(head)
+    if not silhouette:
+        hair = VGroup(*[sk(Triangle().scale(.28).rotate(a), "#2b2b3a", 0).move_to([x_, y_, 0]) for x_, y_, a in [(-.55, 2.18, .3), (-.2, 2.35, 0), (.25, 2.32, -.2), (.65, 2.1, -.5)]])
+        sockets = VGroup(*[sk(Circle(radius=.27), "#1b1325", 0).move_to([ex, 1.5, 0]) for ex in (-.34, .42)])
+        pupils = VGroup(sk(Circle(radius=.11), "#fff35c", 0).move_to([-.3, 1.5, 0]), sk(Circle(radius=.15), "#fff35c", 0).move_to([.46, 1.46, 0]),
+                        sk(Circle(radius=.05), BLACK, 0).move_to([-.3, 1.5, 0]), sk(Circle(radius=.06), BLACK, 0).move_to([.46, 1.46, 0]))
+        mouth = sk(Polygon([-.45, .95, 0], [.5, .9, 0], [.35, .55, 0], [-.3, .5, 0]), "#3a0d17", 0)
+        teeth = VGroup(*[sk(Triangle().scale(.11).rotate(PI), WHITE, 0).move_to([x_, .93 - (.02 if i % 2 else 0), 0]) for i, x_ in enumerate((-.3, -.1, .12, .32))],
+                       *[sk(Triangle().scale(.1), WHITE, 0).move_to([x_, .56, 0]) for x_ in (-.2, .05, .27)])
+        scar = VGroup(pl([(-.7, 1.9), (-.2, 1.75)], "#2d5a2a", 5), *[pl([(x_, 1.82 - .04 * i), (x_, 1.7 - .04 * i)], "#2d5a2a", 4) for i, x_ in enumerate((-.6, -.45, -.3))])
+        brow = pl([(-.65, 1.88), (-.05, 1.7)], "#1b3d1b", 7)
+        parts += [hair, sockets, pupils, mouth, teeth, scar]
+    g = VGroup(*parts)
+    g.scale(scale)
+    g.move_to([x, ground + 1.55 * scale, 0], aligned_edge=ORIGIN)
+    return g
+
+
 class ThumbScene(Scene):
     def construct(self):
         sp = json.load(open(os.environ["THUMB_JSON"], encoding="utf-8"))
@@ -1290,6 +1328,9 @@ class ThumbScene(Scene):
         bg.set_stroke(width=0)
         bg.set_sheen_direction(RIGHT)
         self.add(bg)
+        if sp.get("scene") == "zombie":
+            self.zombie_thumb(sp)
+            return
         ic_x, ic_y = 3.5, -1.65
         # sunburst from the icon
         for i in range(24):
@@ -1325,8 +1366,9 @@ class ThumbScene(Scene):
             if sp2:
                 sp2(1.0, 3.0)
             g2.scale(.62).move_to([px, py, 0])
-            self.add(Circle(radius=.82).move_to([px, py, 0]).set_fill("#ffffff", .96).set_stroke("#111111", 6), g2,
-                     Line([px - .6, py + .6, 0], [px + .6, py - .6, 0]).set_stroke("#ff1a1a", 9))
+            self.add(Circle(radius=.82).move_to([px, py, 0]).set_fill("#ffffff", .96).set_stroke("#111111", 6), g2)
+            if sp.get("strike"):
+                self.add(Line([px - .6, py + .6, 0], [px + .6, py - .6, 0]).set_stroke("#ff1a1a", 9))
         # shocked character: hands clutching head, bottom-left
         ch = Char("guide")
         ch.pose(1.0, -4.9, -5.1, scale=2.05, speaking=True, amp=1.0, emote="shock", ep=1.0)
@@ -1341,7 +1383,7 @@ class ThumbScene(Scene):
         lines = lines[:3]
         if len(lines) == 1:
             lines = [lines[0]]
-        ys = {1: [2.2], 2: [2.85, 1.35], 3: [3.25, 2.0, .55]}[len(lines)]
+        ys = {1: [2.2], 2: [2.85, 1.35], 3: [3.2, 1.95, .55]}[len(lines)]
         cols = ["#ffffff", "#ffd23f", "#ffffff"] if len(lines) == 3 else ["#ffffff", "#ffd23f"]
         for i, ln in enumerate(lines):
             t = T(ln, 150, cols[i % len(cols)], heavy=True)
@@ -1349,8 +1391,59 @@ class ThumbScene(Scene):
             fit(t, 8.3)
             if len(lines) == 3 and i == 0:
                 fit(t, 6.2)
+                if t.height > .8:
+                    t.scale(.8 / t.height)
+            elif t.height > 1.7:
+                t.scale(1.7 / t.height)
             t.move_to([2.7, ys[i], 0]).rotate(-.03)
             self.add(t)
         # soft vignette for punch
         for i in range(8):
             self.add(Annulus(inner_radius=5.6 + .45 * i, outer_radius=15).set_fill(BLACK, .05).set_stroke(width=0))
+
+    def zombie_thumb(self, sp):
+        bg = Rectangle(width=FW + .2, height=FH + .2).set_fill(["#1a0206", "#8a1417", "#2a0409"], 1).set_stroke(width=0)
+        bg.set_sheen_direction(UP)
+        self.add(bg)
+        self.add(Circle(radius=2.1).set_fill("#ffe9b0", .95).set_stroke(width=0).move_to([-1.2, 1.2, 0]),
+                 Circle(radius=2.8).set_fill("#ffe9b0", .12).set_stroke(width=0).move_to([-1.2, 1.2, 0]))
+        x = -7.2
+        rr = random.Random(3)
+        while x < 7.3:
+            h = rr.uniform(1.2, 3.0)
+            self.add(Rectangle(width=1.1, height=h).set_fill("#12060b", 1).set_stroke(width=0).move_to([x, -3.2 + h / 2 + .2, 0]))
+            x += 1.15
+        # horde of silhouettes
+        for i, hx in enumerate(np.linspace(-6.4, 6.6, 9)):
+            self.add(zombie_fig(.42 + .03 * (i % 3), hx, -3.35 - .12 * (i % 2), silhouette=True, arms_dir=1 if hx < 0 else -1))
+        for i in range(10):
+            a = i * TAU / 10
+            self.add(Polygon([2.6, -.8, 0], [2.6 + 14 * np.cos(a), -.8 + 14 * np.sin(a), 0], [2.6 + 14 * np.cos(a + TAU / 40), -.8 + 14 * np.sin(a + TAU / 40), 0]).set_fill("#ff3b1f", .07).set_stroke(width=0))
+        z = zombie_fig(1.5, 3.6, -4.9, arms_dir=-1)
+        glow = z.copy()
+        self.add(z)
+        ch = Char("guide")
+        ch.pose(1.0, -4.9, -5.1, scale=2.05, speaking=True, amp=1.0, emote="shock", ep=1.0)
+        for arm_, sg in ((ch.arm_l, -1), (ch.arm_r, 1)):
+            arm_.rotate(sg * (2.83 - 2.4), about_point=arm_[0].get_center())
+            ch.g.remove(arm_)
+            ch.g.add(arm_)
+        self.add(ch.g)
+        raw = str(sp.get("text") or "WOW").upper()
+        lines = [x.strip() for x in raw.split("|") if x.strip()][:3] or ["WOW"]
+        ys = {1: [2.2], 2: [2.85, 1.35], 3: [3.2, 1.95, .55]}[len(lines)]
+        cols = ["#ffffff", "#ff3b30", "#ffffff"] if len(lines) == 3 else ["#ffffff", "#ff3b30"]
+        for i, ln in enumerate(lines):
+            t = T(ln, 150, cols[i % len(cols)], heavy=True)
+            t.set_stroke(BLACK, 22, background=True)
+            fit(t, 8.3)
+            if len(lines) == 3 and i == 0:
+                fit(t, 6.2)
+                if t.height > .8:
+                    t.scale(.8 / t.height)
+            elif t.height > 1.7:
+                t.scale(1.7 / t.height)
+            t.move_to([2.7, ys[i], 0]).rotate(-.03)
+            self.add(t)
+        for i in range(8):
+            self.add(Annulus(inner_radius=5.6 + .45 * i, outer_radius=15).set_fill(BLACK, .06).set_stroke(width=0))

@@ -47,7 +47,8 @@ Plan a video of about 6 minutes (it must stay between 5 and 7 minutes). Return O
 {"title": "max 70 chars, curiosity-driven, not misleading",
  "description": "3-4 paragraphs + hashtags. Mention that visuals and narration are made with AI tools.",
  "tags": ["..."],
- "thumb": {"text": "headline in up to 3 lines separated by |, e.g. WHAT IF THE INTERNET|SHUT DOWN|FOR 2 DAYS? (line 1 small, lines 2-3 huge, max 16 chars per line)", "icon": "<icon that shows the topic>", "icons": ["up to 4 extra icons about the topic"], "strike": true or false (true when the idea is something disappearing / failing / forbidden: draws a big red slash over the icon), "theme": "red|blue|purple|green|gold", "character": "you|guide"},
+ "thumb": {"text": "headline in up to 3 lines separated by |, e.g. WHAT IF THE INTERNET|SHUT DOWN|FOR 2 DAYS? (line 1 small, lines 2-3 huge, max 16 chars per line)", "icon": "<icon that shows the topic>", "icons": ["up to 4 extra icons about the topic"], "strike": true or false (true when the idea is something disappearing / failing / forbidden: draws a big red slash over the icon), "scene": "(optional) zombie = a full zombie-apocalypse thumbnail, only for zombie topics",
+   "theme": "red|blue|purple|green|gold", "character": "you|guide"},
  "claims_to_check": ["key factual claims a human should verify"],
  "sections": [ exactly 6 sections in story order, each {"name": "short name", "beats": ["4-6 specific points/facts/questions this section covers"]} ] }
 Allowed icons: __ICONS__
@@ -280,6 +281,7 @@ def clean(data):
     th["text"] = str(th.get("text") or data.get("title", "WOW"))[:40]
     th["icon2"] = th.get("icon2") if th.get("icon2") in ICONS else ""
     th["strike"] = bool(th.get("strike"))
+    th["scene"] = "zombie" if th.get("scene") == "zombie" else ""
     th["icons"] = [i for i in (th.get("icons") or []) if i in ICONS][:4]
     data["thumb"] = th
     return data
