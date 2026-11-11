@@ -22,7 +22,7 @@ FALLBACKS = []
 
 ICONS = ("battery phone thermometer flame bolt sun moon earth planet star cloud drop gear magnet atom dna heart "
          "brain virus plant rocket bulb magnifier clock warning check cross gas explosion shield wave question "
-         "dollar chart molecule snow").split()
+         "dollar chart molecule snow wifi block server chat pin cart lock plug signal").split()
 
 SHOT_SCHEMA = """{"kind": "scene|title|stat|diagram",
    "speaker": "guide|you",
@@ -42,13 +42,13 @@ META_PROMPT = """You are the head writer of a fast, funny, visually rich English
 Topic: "__TOPIC__"
 __BRIEF__
 __CAST__
-Plan a 9-10 minute video. Return ONLY valid JSON:
+Plan a video of about 6 minutes (it must stay between 5 and 7 minutes). Return ONLY valid JSON:
 {"title": "max 70 chars, curiosity-driven, not misleading",
  "description": "3-4 paragraphs + hashtags. Mention that visuals and narration are made with AI tools.",
  "tags": ["..."],
- "thumb": {"text": "2-3 huge punchy words (max 14 characters per word) that create shock or curiosity", "icon": "<icon that shows the topic>", "icon2": "<optional second icon>", "theme": "red|blue|purple|green|gold", "character": "you|guide"},
+ "thumb": {"text": "headline in up to 3 lines separated by |, e.g. WHAT IF THE INTERNET|SHUT DOWN|FOR 2 DAYS? (line 1 small, lines 2-3 huge, max 16 chars per line)", "icon": "<icon that shows the topic>", "icons": ["up to 4 extra icons about the topic"], "strike": true or false (true when the idea is something disappearing / failing / forbidden: draws a big red slash over the icon), "theme": "red|blue|purple|green|gold", "character": "you|guide"},
  "claims_to_check": ["key factual claims a human should verify"],
- "sections": [ exactly 7 sections in story order, each {"name": "short name", "beats": ["4-6 specific points/facts/questions this section covers"]} ] }
+ "sections": [ exactly 6 sections in story order, each {"name": "short name", "beats": ["4-6 specific points/facts/questions this section covers"]} ] }
 Allowed icons: __ICONS__
 Rules: section 1 is the hook (shocking opening question, why it matters, a promise of what is coming). The last section is a practical takeaway. In between, build tension: a surprising twist or misconception correction every section. Never invent statistics. Be scientifically accurate."""
 
@@ -63,7 +63,7 @@ Return ONLY valid JSON: {"shots": [ __COUNT__ shots, each:
   __SCHEMA__ ] }
 Allowed icons: __ICONS__
 Rules:
-- This section must contain __WORDS__ words of narration in total (this is a hard minimum: the finished video must run at least 9 minutes, so do not write fewer).
+- This section must contain __WORDS__ words of narration in total. Respect both limits: the whole video must last about 6 minutes (never above 7), so do not write much more or much less.
 - __SPECIAL__
 - EVERY shot's props must visually illustrate exactly what that shot's narration says. Use at most 2 props and no long on-screen text.
 - Use anim "swell" only for battery, "rise" only for thermometer, "grow" only for chart.
@@ -72,9 +72,11 @@ Rules:
 - Tell it like a story: concrete real-life examples, analogies, humor, and end the section with a mini cliffhanger that leads into the next one (except in the last section).
 - NEVER invent statistics; skip any number you are not sure about. Be scientifically accurate."""
 
-MIN_MINUTES = float(os.environ.get("MIN_MINUTES", "6"))
-MIN_SECTION_WORDS = 150
-MIN_TOTAL_WORDS = 1100
+MIN_MINUTES = float(os.environ.get("MIN_MINUTES", "5"))
+MIN_SECTION_WORDS = 100
+MIN_TOTAL_WORDS = 700
+MAX_MINUTES_EST = float(os.environ.get("MAX_MINUTES", "7"))
+WORDS_PER_SEC = 2.8  # measured: Edge neural voice at +4% rate
 
 
 def ensure_fonts():
@@ -122,6 +124,25 @@ def other_models(client):
 def retry_delay(msg):
     m = re.search(r"retry in ([0-9.]+)s", msg) or re.search(r"retryDelay'?\"?: ?'?\"?([0-9.]+)s", msg)
     return min(75.0, float(m.group(1)) + 3) if m else None
+
+
+def est_seconds(shots):
+    return count_words(shots) / WORDS_PER_SEC + .35 * len(shots)
+
+
+def trim_shots(shots, max_minutes=MAX_MINUTES_EST):
+    """Safety net: if the script would run too long, drop the longest ordinary middle shots."""
+    shots = list(shots)
+    removed = 0
+    while est_seconds(shots) > max_minutes * 60 and len(shots) > 12:
+        cands = [i for i in range(2, len(shots) - 4) if shots[i].get("kind") == "scene"]
+        if not cands:
+            break
+        shots.pop(max(cands, key=lambda i: len((shots[i].get("narration") or "").split())))
+        removed += 1
+    if removed:
+        print(f"Trimmed {removed} shots to keep the video under {max_minutes:g} minutes", flush=True)
+    return shots
 
 
 def count_words(shots):
@@ -184,7 +205,7 @@ def generate(topic, brief="", client=None, sleep=time.sleep):
     outline = " | ".join(f"{i + 1}. {x['name']}" for i, x in enumerate(secs))
     shots, prev_tail = [], ""
 
-    def write_section(i, sec, extra="", words="230-300", count="14-20"):
+    def write_section(i, sec, extra="", words="130-170", count="9-13"):
         ctx = ("Previous section ended with: " + prev_tail) if prev_tail else "This is the very beginning of the video."
         special = ('The first shot must be kind "title" (layout "solo", speaker "guide") and open with a shocking hook question.' if i == 0 else
                    ('End with a practical takeaway and a warm sign-off inviting viewers to subscribe for more everyday science.' if i == len(secs) - 1 else
@@ -214,7 +235,7 @@ def generate(topic, brief="", client=None, sleep=time.sleep):
     if count_words(shots) < MIN_TOTAL_WORDS:
         print(f"Only {count_words(shots)} words so far; adding a bonus section", flush=True)
         bonus = {"name": "Myths and surprising facts", "beats": ["two common myths about this topic and the truth", "one surprising real-world example", "one thing most people never think about"]}
-        extra = write_section(max(1, len(secs) - 2), bonus, words="260-320", count="16-22")
+        extra = write_section(max(1, len(secs) - 2), bonus, words="120-160", count="8-12")
         shots = shots[:-len(got)] + extra + got if got else shots + extra
     meta["shots"] = shots
     print(f"Script ready: {len(shots)} shots, {count_words(shots)} words", flush=True)
@@ -248,6 +269,8 @@ def clean(data):
     th["icon"] = th.get("icon") if th.get("icon") in ICONS else "warning"
     th["text"] = str(th.get("text") or data.get("title", "WOW"))[:40]
     th["icon2"] = th.get("icon2") if th.get("icon2") in ICONS else ""
+    th["strike"] = bool(th.get("strike"))
+    th["icons"] = [i for i in (th.get("icons") or []) if i in ICONS][:4]
     data["thumb"] = th
     return data
 
@@ -363,6 +386,8 @@ def build_video(data, topic="", work="work"):
             prepared[i] = f.result()
     mins = sum(p[1] for p in prepared.values()) / 60
     print(f"voices ready: {total} shots, {mins:.1f} min of narration", flush=True)
+    if mins > 8.5 and not os.environ.get("FAKE_TTS"):
+        raise SystemExit(f"Video would be {mins:.1f} min, far over the 5-7 min target. Stopping before rendering; run again.")
     if mins < MIN_MINUTES and not os.environ.get("FAKE_TTS"):
         raise SystemExit(f"Video would only be {mins:.1f} min (minimum {MIN_MINUTES:g}). Stopping before rendering; run again.")
     # 2) render shots in parallel
@@ -415,12 +440,50 @@ def make_thumbnail(data, work="work"):
     return out
 
 
-def upload(video, thumb, data):
+def read_settings():
+    """settings.txt (repo root): upload=1, publish_at=2026-11-12T19:00:00+03:00, privacy=private, auto=0"""
+    d = {}
+    if os.path.exists("settings.txt"):
+        for line in open("settings.txt", encoding="utf-8").read().splitlines():
+            line = line.split("#")[0].strip()
+            if "=" in line:
+                k, v = line.split("=", 1)
+                d[k.strip().lower()] = v.strip()
+    return d
+
+
+def publish_time(cfg):
+    """Returns a UTC ISO string if publish_at is set and still in the future, else None."""
+    import datetime as dt
+    v = cfg.get("publish_at", "")
+    if not v:
+        return None
+    try:
+        t = dt.datetime.fromisoformat(v)
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=dt.timezone(dt.timedelta(hours=3)))
+        t = t.astimezone(dt.timezone.utc)
+    except Exception:
+        print("publish_at could not be read, ignoring:", v)
+        return None
+    if t < dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=20):
+        print("publish_at is in the past (or too soon): the video stays private for manual publishing")
+        return None
+    return t.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def upload(video, thumb, data, cfg=None):
+    cfg = cfg or {}
     c = Credentials(None, refresh_token=os.environ["YT_REFRESH_TOKEN"],
                     token_uri="https://oauth2.googleapis.com/token",
                     client_id=os.environ["YT_CLIENT_ID"], client_secret=os.environ["YT_CLIENT_SECRET"])
     yt = build("youtube", "v3", credentials=c)
-    status = {"privacyStatus": os.environ.get("PRIVACY", "private"), "selfDeclaredMadeForKids": False}
+    pub = publish_time(cfg)
+    privacy = cfg.get("privacy") or os.environ.get("PRIVACY", "private")
+    status = {"privacyStatus": "private" if pub else privacy, "selfDeclaredMadeForKids": False}
+    if pub:
+        status["publishAt"] = pub
+        print("Scheduled to go public at", pub)
     if os.environ.get("SYNTHETIC", "1") == "1":
         status["containsSyntheticMedia"] = True
     body = {"snippet": {"title": data["title"][:100], "description": data["description"],
@@ -439,6 +502,10 @@ def upload(video, thumb, data):
 
 
 if __name__ == "__main__":
+    cfg = read_settings()
+    if os.environ.get("GITHUB_EVENT_NAME") == "schedule" and cfg.get("auto", "0") != "1":
+        print("Scheduled run skipped: auto=0 in settings.txt (manual runs only).")
+        sys.exit(0)
     open("used.txt", "a").close()
     ensure_fonts()
     key, topic, brief = pick_topic()
@@ -448,6 +515,8 @@ if __name__ == "__main__":
     else:
         data = generate(topic, brief)
     data = clean(data)
+    data["shots"] = trim_shots(data["shots"])
+    print(f"Estimated length: {est_seconds(data['shots']) / 60:.1f} min", flush=True)
     os.makedirs("work", exist_ok=True)
     json.dump(data, open("work/script.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print("Claims to verify:", *data.get("claims_to_check", []), sep="\n - ")
@@ -457,9 +526,9 @@ if __name__ == "__main__":
         Image.open(thumb).save("work/thumb.png")  # the workflow artifact list expects thumb.png
     except Exception:
         pass
-    if os.environ.get("UPLOAD") == "1" and os.environ.get("YT_REFRESH_TOKEN"):
-        vid = upload(video, thumb, data)
+    if (os.environ.get("UPLOAD") == "1" or cfg.get("upload") == "1") and os.environ.get("YT_REFRESH_TOKEN"):
+        vid = upload(video, thumb, data, cfg)
         open("used.txt", "a", encoding="utf-8").write(key + "\n")
         print("Uploaded: https://youtu.be/" + vid)
     else:
-        print("UPLOAD is off (or secrets missing): video saved in work/ only, nothing was uploaded.")
+        print("Upload is off (settings.txt upload=1 turns it on) or secrets missing: video saved in work/ only, nothing was uploaded.")

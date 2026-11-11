@@ -1,0 +1,7 @@
+# Spark & Why ayarlari
+upload=1
+# Video bu tarihte otomatik herkese acik olur (Turkiye saati). Silersen video ozel kalir.
+publish_at=2026-11-12T19:00:00+03:00
+privacy=private
+# 1 yaparsan haftada 3 kez otomatik video uretir. Simdilik 0.
+auto=0

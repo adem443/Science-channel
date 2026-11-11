@@ -389,6 +389,71 @@ def _snow():
     return VGroup(*[Line([-.9 * np.cos(a), -.9 * np.sin(a), 0], [.9 * np.cos(a), .9 * np.sin(a), 0]).set_stroke("#bfe9ff", 7) for a in (0, PI / 3, 2 * PI / 3)]), None
 
 
+@icon("wifi")
+def _wifi():
+    arcs = VGroup(*[Arc(radius=r, start_angle=PI / 4, angle=PI / 2, arc_center=[0, -.7, 0]).set_stroke("#4cc9f0", 16) for r in (.7, 1.2, 1.7)])
+    return VGroup(arcs, S(Circle(radius=.17), "#4cc9f0", sw=2).move_to([0, -.7, 0])), None
+
+
+@icon("block")
+def _block():
+    r = S(Circle(radius=1.0), "#ff3b30", sw=0)
+    r.set_fill(opacity=0).set_stroke("#ff3b30", 16)
+    return VGroup(r, Line([-.7, .7, 0], [.7, -.7, 0]).set_stroke("#ff3b30", 16)), None
+
+
+@icon("server")
+def _server():
+    rows = VGroup(*[VGroup(S(RoundedRectangle(corner_radius=.1, width=1.8, height=.5), "#3a4a6b", sw=3),
+                           S(Circle(radius=.08), c, sw=1).move_to([-.7, 0, 0])) for c in ("#34c759", "#ffd23f", "#ff3b30")])
+    for i, r_ in enumerate(rows):
+        r_.shift([0, .6 - .6 * i, 0])
+    return rows, None
+
+
+@icon("chat")
+def _chat():
+    b = S(RoundedRectangle(corner_radius=.3, width=1.8, height=1.2), "#34c759", sw=4)
+    tail = S(Triangle().scale(.25).rotate(PI).move_to([-.5, -.7, 0]), "#34c759", sw=3)
+    dots = VGroup(*[S(Circle(radius=.09), WHITE, sw=0).move_to([x, 0, 0]) for x in (-.4, 0, .4)])
+    return VGroup(tail, b, dots), None
+
+
+@icon("pin")
+def _pin():
+    return VGroup(S(Triangle().scale(.55).rotate(PI).move_to([0, -.5, 0]), "#ff3b30", sw=3),
+                  S(Circle(radius=.6), "#ff3b30", sw=4).move_to([0, .3, 0]),
+                  S(Circle(radius=.22), WHITE, sw=0).move_to([0, .3, 0])), None
+
+
+@icon("cart")
+def _cart():
+    b = S(Polygon([-.9, .5, 0], [.9, .5, 0], [.65, -.4, 0], [-.6, -.4, 0]), "#ffb703", sw=4)
+    return VGroup(pl([(-1.3, .8), (-1, .8), (-.9, .5)], "#bbbbbb", 8), b,
+                  S(Circle(radius=.18), "#444444").move_to([-.45, -.7, 0]),
+                  S(Circle(radius=.18), "#444444").move_to([.45, -.7, 0])), None
+
+
+@icon("lock")
+def _lock():
+    sh = Arc(radius=.5, start_angle=0, angle=PI, arc_center=[0, .35, 0]).set_stroke("#bbbbbb", 14)
+    return VGroup(sh, S(RoundedRectangle(corner_radius=.15, width=1.4, height=1.1), "#ffd23f", sw=4).move_to([0, -.2, 0]),
+                  S(Circle(radius=.13), INK, sw=0).move_to([0, -.2, 0])), None
+
+
+@icon("plug")
+def _plug():
+    return VGroup(S(RoundedRectangle(corner_radius=.2, width=1.2, height=1.0), "#8e9aaf", sw=4).move_to([0, -.2, 0]),
+                  S(Rectangle(width=.18, height=.5), "#dddddd", sw=2).move_to([-.3, .55, 0]),
+                  S(Rectangle(width=.18, height=.5), "#dddddd", sw=2).move_to([.3, .55, 0]),
+                  pl([(0, -.7), (0, -1.3), (.5, -1.5)], "#444444", 8)), None
+
+
+@icon("signal")
+def _signal():
+    return VGroup(*[S(Rectangle(width=.28, height=.4 + .35 * i), "#34c759" if i < 2 else "#555555", sw=2) for i in range(4)]).arrange(RIGHT, buff=.14, aligned_edge=DOWN), None
+
+
 ICON_NAMES = sorted(ICONS)
 
 
@@ -1079,7 +1144,7 @@ class ThumbScene(Scene):
         bg.set_stroke(width=0)
         bg.set_sheen_direction(RIGHT)
         self.add(bg)
-        ic_x, ic_y = 3.5, -1.2
+        ic_x, ic_y = 3.5, -1.65
         # sunburst from the icon
         for i in range(24):
             a = i * TAU / 24
@@ -1093,50 +1158,53 @@ class ThumbScene(Scene):
         g, spf = make_icon(sp.get("icon") or "warning")
         if spf:
             spf(1.0, 3.0)
-        g.scale(1.5).move_to([ic_x, ic_y, 0]).rotate(.08)
+        g.scale(1.3).move_to([ic_x, ic_y, 0]).rotate(.08)
         sh = g.copy()
         for m_ in sh.family_members_with_points():
             m_.set_fill(BLACK, .35 if m_.get_fill_opacity() > 0 else 0)
             m_.set_stroke(BLACK, opacity=.35 if m_.get_stroke_width() > 0 else 0)
         sh.shift([.14, -.14, 0])
-        ring = Circle(radius=2.1).move_to([ic_x, ic_y, 0]).set_fill(opacity=0).set_stroke("#ff2d2d", 14)
+        ring = Circle(radius=1.9).move_to([ic_x, ic_y, 0]).set_fill(opacity=0).set_stroke("#ff2d2d", 14)
         self.add(sh, g, ring)
-        # optional second icon
-        ic2 = sp.get("icon2") or ""
-        if ic2 and ic2 in ICONS:
-            g2, sp2 = make_icon(ic2)
+        if sp.get("strike"):
+            self.add(Line([ic_x - 1.7, ic_y + 1.7, 0], [ic_x + 1.7, ic_y - 1.7, 0]).set_stroke("#000000", 40),
+                     Line([ic_x - 1.7, ic_y + 1.7, 0], [ic_x + 1.7, ic_y - 1.7, 0]).set_stroke("#ff1a1a", 28))
+        # satellite icons, each crossed out
+        sats = [i for i in (sp.get("icons") or []) if i in ICONS][:4]
+        if not sats and sp.get("icon2") in ICONS:
+            sats = [sp.get("icon2")]
+        spots = [(-.1, -.8), (.5, -3.1), (6.2, -3.1), (6.2, -1.25)]
+        for nm, (px, py) in zip(sats, spots):
+            g2, sp2 = make_icon(nm)
             if sp2:
                 sp2(1.0, 3.0)
-            g2.scale(.85).move_to([ic_x - 3.2, ic_y - .9, 0])
-            self.add(Circle(radius=1.0).move_to(g2.get_center()).set_fill("#ffffff", .95).set_stroke("#ff2d2d", 7), g2)
-        # shocked character, bottom-left, cropped by the frame edge
-        who = sp.get("character") or "you"
-        ch = Char(who if who in ("guide", "you") else "you")
-        ch.pose(1.0, -5.1, -5.0, scale=1.9, speaking=True, amp=1.0, emote="shock", ep=1.0)
+            g2.scale(.62).move_to([px, py, 0])
+            self.add(Circle(radius=.82).move_to([px, py, 0]).set_fill("#ffffff", .96).set_stroke("#111111", 6), g2,
+                     Line([px - .6, py + .6, 0], [px + .6, py - .6, 0]).set_stroke("#ff1a1a", 9))
+        # shocked character: hands clutching head, bottom-left
+        ch = Char("guide")
+        ch.pose(1.0, -4.9, -5.1, scale=2.05, speaking=True, amp=1.0, emote="shock", ep=1.0)
+        for arm_, sg in ((ch.arm_l, -1), (ch.arm_r, 1)):
+            arm_.rotate(sg * (2.83 - 2.4), about_point=arm_[0].get_center())
+            ch.g.remove(arm_)
+            ch.g.add(arm_)
         self.add(ch.g)
-        # headline
-        words = str(sp.get("text") or "WOW").upper().split()
-        lines, line = [], ""
-        for w in words:
-            if line and len(line) + len(w) >= 12:
-                lines.append(line)
-                line = w
-            else:
-                line = (line + " " + w).strip()
-        lines.append(line)
-        lines = lines[:2]
-        ys = [2.85, 1.35] if len(lines) == 2 else [2.2]
-        cols = ["#ffffff", "#ffd23f"]
+        # headline: lines separated by "|", first line small, others huge
+        raw = str(sp.get("text") or "WOW").upper()
+        lines = [x.strip() for x in raw.split("|") if x.strip()] or ["WOW"]
+        lines = lines[:3]
+        if len(lines) == 1:
+            lines = [lines[0]]
+        ys = {1: [2.2], 2: [2.85, 1.35], 3: [3.25, 2.0, .55]}[len(lines)]
+        cols = ["#ffffff", "#ffd23f", "#ffffff"] if len(lines) == 3 else ["#ffffff", "#ffd23f"]
         for i, ln in enumerate(lines):
-            t = T(ln, 150, cols[i % 2], heavy=True)
+            t = T(ln, 150, cols[i % len(cols)], heavy=True)
             t.set_stroke(BLACK, 22, background=True)
             fit(t, 8.3)
-            t.move_to([2.55, ys[i], 0]).rotate(-.03)
+            if len(lines) == 3 and i == 0:
+                fit(t, 6.2)
+            t.move_to([2.7, ys[i], 0]).rotate(-.03)
             self.add(t)
-        # arrow from the headline towards the icon
-        ar = Arrow([-1.9, -1.0, 0], [ic_x - 2.5, ic_y + .1, 0], buff=0, color="#ff2d2d", stroke_width=18, tip_length=.6)
-        ar.set_stroke("#ffffff", 3, background=True)
-        self.add(ar)
         # soft vignette for punch
         for i in range(8):
             self.add(Annulus(inner_radius=5.6 + .45 * i, outer_radius=15).set_fill(BLACK, .05).set_stroke(width=0))
