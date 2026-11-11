@@ -65,9 +65,29 @@ def envelope(path, fps):
     k = len(data) // hop
     if k == 0:
         return np.zeros(1)
-    env = np.array([np.abs(data[i * hop:(i + 1) * hop]).mean() for i in range(k)])
-    env = env / (np.percentile(env, 95) + 1e-9)
-    return np.clip(env, 0, 1)
+    env = np.array([np.sqrt(np.mean(data[i * hop:(i + 1) * hop] ** 2)) for i in range(k)])
+    env = env / (np.percentile(env, 92) + 1e-9)
+    env = np.where(env < .12, 0.0, env)  # real pauses close the mouth fully
+    return np.clip(env ** .8, 0, 1)
+
+
+def mouth_shape(path, fps):
+    """0 = round 'oo/oh' sounds, 1 = wide 'ee/ah' sounds (zero-crossing rate as a cheap vowel proxy)."""
+    if not path or not os.path.exists(path):
+        return np.full(1, .5)
+    with wave.open(path) as w:
+        sr, n, ch = w.getframerate(), w.getnframes(), w.getnchannels()
+        data = np.frombuffer(w.readframes(n), dtype=np.int16).astype(float)
+    if ch > 1:
+        data = data.reshape(-1, ch).mean(axis=1)
+    hop = max(1, int(sr / fps))
+    k = len(data) // hop
+    if k == 0:
+        return np.full(1, .5)
+    z = np.array([np.mean(np.abs(np.diff(np.sign(data[i * hop:(i + 1) * hop])))) / 2 for i in range(k)])
+    z = np.convolve(z, np.ones(3) / 3, mode="same")
+    lo, hi = np.percentile(z, 10), np.percentile(z, 90)
+    return np.clip((z - lo) / (hi - lo + 1e-9), 0, 1)
 
 
 def chunks_of(text, size=7):
@@ -454,6 +474,45 @@ def _signal():
     return VGroup(*[S(Rectangle(width=.28, height=.4 + .35 * i), "#34c759" if i < 2 else "#555555", sw=2) for i in range(4)]).arrange(RIGHT, buff=.14, aligned_edge=DOWN), None
 
 
+@icon("zombie")
+def _zombie():
+    head = S(Circle(radius=.8), "#8fcf7a", sw=4)
+    eyes = VGroup(S(Circle(radius=.2), WHITE, sw=2).move_to([-.3, .15, 0]), S(Circle(radius=.2), WHITE, sw=2).move_to([.3, .15, 0]),
+                  S(Circle(radius=.07), BLACK, sw=0).move_to([-.25, .12, 0]), S(Circle(radius=.07), BLACK, sw=0).move_to([.35, .1, 0]))
+    mouth = pl([(-.4, -.35), (-.2, -.25), (0, -.4), (.2, -.25), (.4, -.38)], "#3a1d1d", 6)
+    stitch = pl([(-.7, .5), (-.35, .62)], "#2d5a2a", 5)
+    return VGroup(head, eyes, mouth, stitch), None
+
+
+@icon("mushroom")
+def _mush():
+    cap = S(Arc(radius=1.0, start_angle=0, angle=PI).append_points([[-1, 0, 0], [1, 0, 0]]) if False else Ellipse(width=2.1, height=1.3), "#e8423a", sw=4).move_to([0, .35, 0])
+    dots = VGroup(*[S(Circle(radius=r), WHITE, sw=0).move_to([x, y, 0]) for x, y, r in [(-.5, .5, .17), (.2, .7, .2), (.6, .3, .13)]])
+    stem = S(RoundedRectangle(corner_radius=.2, width=.7, height=.9), "#f3e6c8", sw=4).move_to([0, -.55, 0])
+    return VGroup(stem, cap, dots), None
+
+
+@icon("ant")
+def _ant():
+    parts = VGroup(S(Circle(radius=.3), "#5a2d12", sw=3).move_to([-.7, 0, 0]), S(Circle(radius=.26), "#5a2d12", sw=3).move_to([-.15, 0, 0]),
+                   S(Ellipse(width=.9, height=.6), "#5a2d12", sw=3).move_to([.55, 0, 0]))
+    legs = VGroup(*[Line([x, -.1, 0], [x + dx, -.6, 0]).set_stroke("#3b1c0a", 5) for x, dx in [(-.3, -.2), (-.1, 0), (.1, .25)]])
+    ant_ = VGroup(pl([(-.85, .2), (-1.1, .6)], "#3b1c0a", 4), pl([(-.7, .25), (-.6, .7)], "#3b1c0a", 4))
+    return VGroup(legs, parts, ant_), None
+
+
+@icon("hospital")
+def _hosp():
+    return VGroup(S(RoundedRectangle(corner_radius=.15, width=1.8, height=1.6), WHITE, sw=4),
+                  S(Rectangle(width=.9, height=.28), "#e63946", sw=0), S(Rectangle(width=.28, height=.9), "#e63946", sw=0)), None
+
+
+@icon("fire")
+def _fire():
+    return VGroup(S(Polygon([0, 1, 0], [.7, 0, 0], [.5, -.8, 0], [-.5, -.8, 0], [-.7, 0, 0]), "#ff6b1a", sw=3),
+                  S(Polygon([0, .3, 0], [.35, -.2, 0], [.25, -.7, 0], [-.25, -.7, 0], [-.35, -.2, 0]), "#ffd23f", sw=0)), None
+
+
 ICON_NAMES = sorted(ICONS)
 
 
@@ -645,7 +704,7 @@ class Char:
         self.g.save_state()
 
     def pose(self, t, x, ground, scale=1.15, speaking=False, amp=0.0, point=0, emote=None, ep=0.0,
-             walking=False, calm=False, wave_hand=False, look=0.0):
+             walking=False, calm=False, wave_hand=False, look=0.0, shape=.5):
         g = self.g
         g.restore()
         jump, squash = 0.0, 0.0
@@ -678,7 +737,7 @@ class Char:
                 ang = s * (.3 + .9 * ep)
             arm.rotate(ang, about_point=arm[0].get_center())
         # ---- face
-        openness = .05 + (.5 * amp if speaking else 0)
+        openness = .04 + (.62 * amp if speaking else 0)
         smile_w = 1.0
         eye_h, pupil_k, brow_up, brow_tilt = 1.0, 1.0, 0.0, 0.0
         show = "smile"
@@ -701,8 +760,8 @@ class Char:
         self.mouth.set_fill(opacity=op).set_stroke(opacity=op)
         self.tongue.set_fill(opacity=op if openness > .22 else 0)
         if op:
-            self.mouth.stretch_to_fit_height(max(.06, min(.62, openness * 1.05)))
-            self.mouth.stretch_to_fit_width(.3 + (.1 if emote == "happy" else 0) - (.06 if emote == "shock" else 0))
+            self.mouth.stretch_to_fit_height(max(.06, min(.66, openness * (1.25 - .45 * shape))))
+            self.mouth.stretch_to_fit_width(.2 + .3 * shape + (.1 if emote == "happy" else 0) - (.06 if emote == "shock" else 0))
             self.mouth.move_to([0, .46 - (.04 if openness > .3 else 0), 0])
             self.tongue.move_to([0, .46 - openness * .35, 0])
         self.smile.stretch(smile_w, 0)
@@ -776,6 +835,10 @@ def backdrop(name):
         while x < 7.2:
             h = rnd.uniform(1.5, 4.4)
             g.add(box(1.2, h, rnd.choice(["#5c6b7e", "#6b7a8f", "#4f5d70"]), x, -2.3 + h / 2))
+            for wy in np.arange(-2.0, -2.3 + h - .3, .6):
+                for wx in (-.3, .3):
+                    if rnd.random() < .6:
+                        g.add(box(.2, .26, "#dce9f7", x + wx, wy + .1, op=.8))
             x += 1.35
         g.add(box(FW, 1.6, "#444b55", y=-3.2))
         for i in range(3):
@@ -785,6 +848,56 @@ def backdrop(name):
         g.add(box(FW, 1.6, "#6fb36a", y=-3.2), box(.3, 1.2, "#7a5230", -6.1, -1.3), dot(.85, "#3f8f4a", -6.1, -.4))
         for i in range(3):
             amb.append(("cloud", VGroup(dot(.4, WHITE, 0, 0), dot(.55, WHITE, .5, .1), dot(.4, WHITE, 1.0, 0)).move_to([-4 + i * 4.5, 2.8 - i * .5, 0]), i))
+    elif name == "night":
+        g.add(box(FW, FH, "#080d24"), box(FW, 3, "#141a3d", y=-1.8, op=.7))
+        g.add(dot(.9, "#f4f1d0", 5.3, 2.8), dot(1.3, "#f4f1d0", 5.3, 2.8, op=.15))
+        for _ in range(35):
+            amb.append(("twinkle", dot(rnd.uniform(.02, .04), WHITE, rnd.uniform(-7, 7), rnd.uniform(.5, 4)), rnd.uniform(0, 6)))
+        x = -7.0
+        while x < 7.2:
+            h = rnd.uniform(1.8, 4.6)
+            g.add(box(1.25, h, rnd.choice(["#1c2347", "#232b55", "#171d3c"]), x, -2.3 + h / 2))
+            for wy in np.arange(-2.0, -2.3 + h - .3, .55):
+                for wx in (-.3, .3):
+                    if rnd.random() < .55:
+                        w_ = box(.22, .3, "#ffd76a", x + wx, wy + .1, op=.9)
+                        g.add(w_)
+                        amb.append(("flicker", w_, rnd.uniform(0, 30)))
+            x += 1.4
+        g.add(box(FW, 1.6, "#0d1128", y=-3.2))
+    elif name == "forest":
+        g.add(box(FW, FH, "#0e2a1f"), box(FW, 3.5, "#143d2c", y=-1.2, op=.6))
+        g.add(dot(.8, "#cfe8d8", -4.8, 2.9, op=.55), dot(1.2, "#cfe8d8", -4.8, 2.9, op=.1))
+        for x in np.arange(-7.2, 7.4, 1.1):
+            h = rnd.uniform(3.2, 5.5)
+            g.add(box(.34, h, "#08160f", x, -3.2 + h / 2))
+            g.add(Triangle().scale(.8).stretch(1.4, 1).set_fill("#0c2418", 1).set_stroke(width=0).move_to([x, -1.2 + h * .45, 0]))
+        g.add(box(FW, 1.6, "#0a1b12", y=-3.2))
+        for i in range(10):
+            amb.append(("firefly", dot(.07, "#b9ff66", rnd.uniform(-6.5, 6.5), rnd.uniform(-2.6, 2.6)), rnd.uniform(0, 20)))
+        for i in range(3):
+            amb.append(("fog", Ellipse(width=9, height=1.3).set_fill("#cfe8d8", .09).set_stroke(width=0).move_to([-5 + i * 5, -2.4 + i * .5, 0]), i))
+    elif name == "map":
+        g.add(box(FW, FH, "#0a1a33"))
+        for x in np.arange(-7, 7.1, 1.0):
+            g.add(Line([x, -4, 0], [x, 4, 0]).set_stroke("#1d3a66", 1.5))
+        for y in np.arange(-4, 4.1, 1.0):
+            g.add(Line([-7.2, y, 0], [7.2, y, 0]).set_stroke("#1d3a66", 1.5))
+        land = [(-4.2, .8, 3.4, 2.6), (-3.2, -1.9, 1.6, 2.5), (.4, 1.2, 1.8, 1.8), (.9, -.8, 1.9, 2.7), (3.8, 1.2, 4.2, 2.4), (5.6, -2.2, 1.7, 1.1)]
+        for cx_, cy_, w_, h_ in land:
+            g.add(Ellipse(width=w_, height=h_).set_fill("#1e4f87", .85).set_stroke("#3b82c4", 3).move_to([cx_, cy_, 0]))
+        spots = [(-4.2, 1.0), (-3.0, -1.8), (.4, 1.3), (1.0, -.7), (3.0, 1.4), (4.6, .9), (5.7, -2.2), (-5.3, .2), (2.2, .2), (3.9, 2.0), (.8, -1.9), (-3.5, 2.0)]
+        for i, (px_, py_) in enumerate(spots):
+            amb.append(("spread", dot(.2, "#ff3b30", px_, py_, op=0), i))
+            amb.append(("spreadring", Circle(radius=.2).set_fill(opacity=0).set_stroke("#ff3b30", 3).move_to([px_, py_, 0]).set_stroke(opacity=0), i))
+    elif name == "alert":
+        g.add(box(FW, FH, "#2a0a0e"))
+        for i in range(9):
+            g.add(box(1.4, 14, "#5a1018", -8 + i * 2.2, 0, op=.5).rotate(.5))
+        sir = dot(2.2, "#ff2a2a", -6.2, 3.3, op=.25)
+        amb.append(("siren", sir, 0))
+        g.add(box(FW, 1.6, "#1a0508", y=-3.2))
+        g.add(box(FW, .35, "#ffd23f", y=-2.5), *[box(.5, .35, BLACK, x, -2.5) for x in np.arange(-7, 7.5, 1.0)])
     elif name == "bedroom":
         g.add(box(FW, FH, "#cdbfe0"), box(FW, 1.6, "#8b6f5a", y=-3.2))
         g.add(box(2, 2.2, "#1b2550", -5.6, 2, sc=WHITE, sw=3), dot(.4, "#f7f1c4", -5.3, 2.3))
@@ -812,6 +925,22 @@ def update_ambient(amb, t):
         elif kind == "cloud":
             x = ((t * .35 + ph * 5) % 18) - 9
             m.move_to([x, m.get_center()[1], 0])
+        elif kind == "flicker":
+            m.set_opacity(.9 if np.sin(t * .8 + ph) > -.92 else .15)
+        elif kind == "firefly":
+            m.set_fill(opacity=.2 + .8 * abs(np.sin(1.7 * t + ph)))
+            m.shift([.004 * np.sin(1.1 * t + ph), .003 * np.cos(.9 * t + ph), 0])
+        elif kind == "fog":
+            m.move_to([((t * .25 + ph * 5) % 20) - 10, m.get_center()[1], 0])
+        elif kind == "spread":
+            a = clamp((t - .15 * ph) / .5)
+            m.set_fill(opacity=a * (.75 + .25 * np.sin(5 * t + ph)))
+        elif kind == "spreadring":
+            f = (t * .8 + ph * .13) % 1
+            m.scale_to_fit_width(.4 + 1.0 * f) if False else None
+            m.set_stroke(opacity=(1 - f) * clamp((t - .15 * ph) / .5) * .9)
+        elif kind == "siren":
+            m.set_fill(opacity=.1 + .35 * abs(np.sin(4 * t)))
 
 
 # ---------------------------------------------------------------- shot scene
@@ -827,7 +956,7 @@ def ease_io(x):
     return x * x * (3 - 2 * x)
 
 
-WIPE_COL = {"lab": "#4a90d9", "space": "#7b5ea7", "ocean": "#1b6a96", "city": "#f2b63d", "nature": "#34c759", "bedroom": "#ff7ad9"}
+WIPE_COL = {"lab": "#4a90d9", "space": "#7b5ea7", "ocean": "#1b6a96", "city": "#f2b63d", "nature": "#34c759", "bedroom": "#ff7ad9", "night": "#3b3f9a", "forest": "#1f7a4a", "map": "#d93a3a", "alert": "#ff2a2a"}
 
 
 class SceneRenderer(MovingCameraScene):
@@ -841,6 +970,7 @@ class SceneRenderer(MovingCameraScene):
         side = 1 if os.environ.get("SHOT_SIDE", "1") == "1" else -1
         fps = config.frame_rate
         env = envelope(os.environ.get("SCENE_AUDIO"), fps)
+        shp = mouth_shape(os.environ.get("SCENE_AUDIO"), fps)
         rnd = random.Random(idx * 7919 + 13)
 
         kind = spec.get("kind") or "scene"
@@ -957,6 +1087,9 @@ class SceneRenderer(MovingCameraScene):
         hud = []
         vig = soft_vignette()
         hud.append(vig)
+        mood = spec.get("mood") or "calm"
+        tint = box(FW + .6, FH + .6, "#000000", 0, 0, op=0)
+        hud.append(tint)
         tag_t = fit(T(topic, 22, WHITE, outline=False), 5.2)
         tag_p = box(tag_t.width + .5, .62, INK, 0, 0, op=.8, r=.12)
         tag_p.move_to([-6.9 + tag_p.width / 2, 3.45, 0])
@@ -1031,6 +1164,12 @@ class SceneRenderer(MovingCameraScene):
                 z = 1.08
             if pun is not None and kind == "scene":
                 z += .07 * np.sin(PI * clamp((t - punch_t) / .45))
+            if mood == "danger":
+                px += .045 * np.sin(31 * t) * (.6 + .4 * np.sin(2.3 * t))
+                py += .035 * np.cos(27 * t)
+                z += .015 + .01 * np.sin(1.7 * t)
+            elif mood == "tense":
+                z += .03 * ease_io(u)
             if reaction == "shock" and react_t0 < t < react_t0 + .5:
                 z += .1 * np.sin(PI * (t - react_t0) / .5)
                 px, py = .06 * np.sin(60 * t), .05 * np.cos(55 * t)
@@ -1047,7 +1186,8 @@ class SceneRenderer(MovingCameraScene):
             if rays is not None:
                 rays.rotate(dt * .22, about_point=[0, .3, 0])
             e = float(env[min(len(env) - 1, int(t * fps))])
-            st["amp"] = .55 * st["amp"] + .45 * e
+            st["amp"] = e if e > st["amp"] else .45 * st["amp"] + .55 * e   # snap open, release a little slower
+            st["shp"] = .5 * st.get("shp", .5) + .5 * float(shp[min(len(shp) - 1, int(t * fps))])
             sx_ = cfg[speaker][0] if speaker in cfg else 0.0
             for k, ch in chars.items():
                 x_t, gnd, scl = cfg[k]
@@ -1075,7 +1215,7 @@ class SceneRenderer(MovingCameraScene):
                     look = 1 if sx_ > x else -1
                 elif slots and spk:
                     look = 1 if cx > x else -1
-                ch.pose(t, x, gnd, scale=scl, speaking=spk, amp=st["amp"] if spk else 0.0, point=point, emote=emote, ep=ep,
+                ch.pose(t, x, gnd, scale=scl, speaking=spk, amp=st["amp"] if spk else 0.0, shape=st.get("shp", .5), point=point, emote=emote, ep=ep,
                         walking=walking, wave_hand=(kind == "title" and spk and t < 2.5), look=look)
             for s_ in slots:
                 s_.update(t, dur)
@@ -1105,6 +1245,12 @@ class SceneRenderer(MovingCameraScene):
             w = max(.02, FW * (idx + clamp(t / dur)) / total)
             for m in hud:
                 m.restore()
+            if mood == "danger":
+                tint.set_fill("#ff0000", .10 + .08 * abs(np.sin(3.2 * t)))
+            elif mood == "tense":
+                tint.set_fill("#000022", .16)
+            elif mood == "relief":
+                tint.set_fill("#ffd98a", .10 + .04 * np.sin(2 * t))
             bar.stretch_to_fit_width(w)
             bar.move_to([-FW / 2 + w / 2, 3.94, 0])
             for i, c in enumerate(caps):

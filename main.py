@@ -22,13 +22,14 @@ FALLBACKS = []
 
 ICONS = ("battery phone thermometer flame bolt sun moon earth planet star cloud drop gear magnet atom dna heart "
          "brain virus plant rocket bulb magnifier clock warning check cross gas explosion shield wave question "
-         "dollar chart molecule snow wifi block server chat pin cart lock plug signal").split()
+         "dollar chart molecule snow wifi block server chat pin cart lock plug signal zombie mushroom ant hospital fire").split()
 
 SHOT_SCHEMA = """{"kind": "scene|title|stat|diagram",
    "speaker": "guide|you",
    "narration": "8-22 words (one or two short sentences) spoken in this shot",
    "layout": "duo|solo|walk|prop_only|closeup",
-   "backdrop": "lab|space|ocean|city|nature|bedroom",
+   "backdrop": "lab|space|ocean|city|nature|bedroom|night|forest|map|alert",
+   "mood": "calm|tense|danger|relief",
    "props": [{"icon": "<icon>", "anim": "pop|pulse|shake|spin|float|grow|rise|swell", "label": "max 3 words"}],
    "reaction": "none|shock|think|happy|worried",
    "punch": "(optional) 1-3 ALL-CAPS words flashed on screen for impact",
@@ -50,7 +51,7 @@ Plan a video of about 6 minutes (it must stay between 5 and 7 minutes). Return O
  "claims_to_check": ["key factual claims a human should verify"],
  "sections": [ exactly 6 sections in story order, each {"name": "short name", "beats": ["4-6 specific points/facts/questions this section covers"]} ] }
 Allowed icons: __ICONS__
-Rules: section 1 is the hook (shocking opening question, why it matters, a promise of what is coming). The last section is a practical takeaway. In between, build tension: a surprising twist or misconception correction every section. Never invent statistics. Be scientifically accurate."""
+Rules: section 1 is the hook: it begins with a cold open (the most dramatic moment shown first, no greeting), then a title card, then why it matters and a promise of what is coming. The last section is a practical takeaway. In between, build tension: a surprising twist or misconception correction every section. Never invent statistics. Be scientifically accurate."""
 
 SECTION_PROMPT = """You are the head writer of the English science-explainer YouTube channel "Spark & Why".
 Video topic: "__TOPIC__"
@@ -67,6 +68,7 @@ Rules:
 - __SPECIAL__
 - EVERY shot's props must visually illustrate exactly what that shot's narration says. Use at most 2 props and no long on-screen text.
 - Use anim "swell" only for battery, "rise" only for thermometer, "grow" only for chart.
+- Backdrops: night = dark city with lit windows (blackouts, fear), forest = dark misty forest (mysterious nature), map = world map with red dots spreading (outbreaks, spread over countries), alert = red emergency room (alarms, crisis). Mood: use danger for the scariest moments (camera shakes, red tint), tense for rising worry, relief for the calming reassurance at the end (warm glow), calm otherwise. Build a clear emotional arc: curiosity, rising danger, peak, then relief.
 - Pace: change layout or backdrop almost every shot; never repeat the same layout+backdrop twice in a row. Use "walk" now and then, "closeup" for emotional or dramatic lines, "prop_only" (speaker must be "guide") for cinematic explanation moments, "solo" for emphasis, "stat" shots for big numbers or timeline marks, "diagram" for cause-and-effect chains.
 - "you" speaks in about one shot of three: short funny questions, jokes or wrong guesses (max 20 words) that "guide" answers. "reaction" (for the listener) in about 1 shot of 3. "punch" in about 1 shot of 4, always a different word.
 - Tell it like a story: concrete real-life examples, analogies, humor, and end the section with a mini cliffhanger that leads into the next one (except in the last section).
@@ -135,7 +137,7 @@ def trim_shots(shots, max_minutes=MAX_MINUTES_EST):
     shots = list(shots)
     removed = 0
     while est_seconds(shots) > max_minutes * 60 and len(shots) > 12:
-        cands = [i for i in range(2, len(shots) - 4) if shots[i].get("kind") == "scene"]
+        cands = [i for i in range(5, len(shots) - 4) if shots[i].get("kind") == "scene"]
         if not cands:
             break
         shots.pop(max(cands, key=lambda i: len((shots[i].get("narration") or "").split())))
@@ -207,7 +209,13 @@ def generate(topic, brief="", client=None, sleep=time.sleep):
 
     def write_section(i, sec, extra="", words="130-170", count="9-13"):
         ctx = ("Previous section ended with: " + prev_tail) if prev_tail else "This is the very beginning of the video."
-        special = ('The first shot must be kind "title" (layout "solo", speaker "guide") and open with a shocking hook question.' if i == 0 else
+        special = (('THIS SECTION STARTS WITH A COLD OPEN, because the first 10 seconds decide whether people keep watching. '
+                    'Shots 1-3 (about 30 words in total) are the most gripping, dramatic moment of the whole video, told as if it is happening right now, '
+                    'WITHOUT any greeting, introduction or channel name. Use kind "scene" (not title), layouts closeup/solo/prop_only, '
+                    'mood "danger" or "tense", a dark backdrop (alert, night, map or forest), a shock reaction in shot 2, and a short ALL-CAPS "punch" word on the peak. '
+                    'End shot 3 on an unanswered question or cliffhanger. '
+                    'Shot 4 must be kind "title" (layout "solo", speaker "guide", text = a 2-3 word ALL-CAPS version of the topic, narration = a short friendly welcome to Spark and Why plus a promise of what the viewer will learn and the reassuring answer at the end). '
+                    'After that, continue with the rest of this section.') if i == 0 else
                    ('End with a practical takeaway and a warm sign-off inviting viewers to subscribe for more everyday science.' if i == len(secs) - 1 else
                     'Do not repeat the intro; continue the story.'))
         p = fill(SECTION_PROMPT).replace("__OUTLINE__", outline).replace("__N__", str(i + 1)).replace("__TOTAL__", str(len(secs)))
@@ -252,6 +260,8 @@ def clean(data):
         if s["layout"] == "prop_only" and s["speaker"] == "you":
             s["layout"] = "solo"
         s["punch"] = str(s.get("punch") or "")[:28]
+        s["mood"] = s.get("mood") if s.get("mood") in ("calm", "tense", "danger", "relief") else "calm"
+        s["backdrop"] = s.get("backdrop") if s.get("backdrop") in ("lab", "space", "ocean", "city", "nature", "bedroom", "night", "forest", "map", "alert") else "lab"
         if s.get("kind") not in ("scene", "title", "stat", "diagram"):
             s["kind"] = "scene"
         props = []
