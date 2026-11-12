@@ -300,6 +300,25 @@ def duration(path):
                                           "-of", "default=nw=1:nk=1", path]))
 
 
+async def _edge_save(text, voice, path):
+    """Saves the voice and (when available) word timings to <path>.words.json for karaoke captions."""
+    words = []
+    try:
+        com = edge_tts.Communicate(text, voice, rate="+4%", boundary="WordBoundary")
+    except TypeError:
+        com = edge_tts.Communicate(text, voice, rate="+4%")
+    with open(path, "wb") as f:
+        async for ch in com.stream():
+            if ch["type"] == "audio":
+                f.write(ch["data"])
+            elif ch["type"] == "WordBoundary":
+                words.append([ch["text"], ch["offset"] / 1e7, (ch["offset"] + ch["duration"]) / 1e7])
+    try:
+        json.dump(words, open(path + ".words.json", "w"))
+    except Exception:
+        pass
+
+
 def tts(text, speaker, path):
     text = (text or "").strip() or "."
     if os.environ.get("FAKE_TTS"):  # offline test hook
@@ -311,7 +330,7 @@ def tts(text, speaker, path):
     for voice in order:
         for attempt in range(3):
             try:
-                asyncio.run(asyncio.wait_for(edge_tts.Communicate(text, voice, rate="+4%").save(path), 60))
+                asyncio.run(asyncio.wait_for(_edge_save(text, voice, path), 60))
                 if os.path.getsize(path) > 1000:
                     VOICE_OK.setdefault(speaker, voice)
                     return
@@ -335,7 +354,7 @@ def prepare_shot(i, sh, work, prev, rnd, total):
     json.dump(sh, open(js, "w", encoding="utf-8"), ensure_ascii=False)
     enter = prev is None or prev.get("backdrop") != sh.get("backdrop") or prev.get("layout") != sh.get("layout")
     env = dict(SCENE_JSON=js, SCENE_DUR=str(d), SCENE_AUDIO=wav, SCENE_IDX=str(i), SCENE_TOTAL=str(total),
-               SCENE_CUES=f"{work}/{i:02d}.cues.json", TOPIC=TOPIC_NAME[0],
+               SCENE_CUES=f"{work}/{i:02d}.cues.json", SCENE_WORDS=mp3 + ".words.json", TOPIC=TOPIC_NAME[0],
                SHOT_ENTER="1" if enter else "0", SHOT_SIDE=rnd.choice(["1", "-1"]))
     return mp3, d, env
 
@@ -415,7 +434,8 @@ def build_video(data, topic="", work="work"):
     # 3) music + optional 1080p upscale (YouTube gives 1080p uploads a better bitrate)
     final = f"{work}/final.mp4"
     total_dur = duration(joined)
-    vf = ["-vf", "scale=1920:1080:flags=lanczos"] if UPSCALE else []
+    grade = "eq=contrast=1.06:saturation=1.12:gamma=0.98,noise=alls=2:allf=t"  # light colour grade + subtle film grain
+    vf = ["-vf", ("scale=1920:1080:flags=lanczos," if UPSCALE else "") + grade]
     if MUSIC:
         audio_fx.music(total_dur + 2, f"{work}/music.wav")
         run(["ffmpeg", "-y", "-loglevel", "error", "-i", joined, "-i", f"{work}/music.wav",

@@ -655,6 +655,13 @@ class Char:
         self.head.add(S(Circle(radius=.9), skin_d, op=.0, sw=0).move_to([0, .95, 0]))
         for sx in (-1, 1):
             self.head.add(S(Circle(radius=.16), skin).move_to([sx * .9, .9, 0]))  # ears
+        try:  # soft shading: shadow crescent on the lower-right, bright rim on the upper-left
+            cres = Difference(Circle(radius=.9).move_to([0, .95, 0]), Circle(radius=.9).move_to([-.16, 1.06, 0]))
+            cres.set_fill("#8a4b2a", .22).set_stroke(width=0)
+            self.head.add(cres)
+        except Exception:
+            pass
+        self.head.add(Arc(radius=.82, start_angle=1.9, angle=.9, arc_center=[0, .95, 0]).set_stroke("#ffffff", 7, opacity=.35))
         if fem:
             fringe = VGroup(S(Ellipse(width=1.9, height=.75), hair_c).move_to([0, 1.62, 0]),
                             S(Circle(radius=.24), hair_c).move_to([-.6, 1.42, 0]),
@@ -776,6 +783,7 @@ class Char:
         if hap:
             self.eyes.set_opacity(0)
             self.lashes.set_opacity(0)
+        brow_up += (.11 * amp * (1 + np.sin(6 * t) * .4)) if speaking else 0
         self.brows.shift(UP * brow_up)
         if brow_tilt:
             self.brows[0].rotate(-brow_tilt); self.brows[1].rotate(brow_tilt)
@@ -785,13 +793,17 @@ class Char:
             self.sweat.set_opacity(ep); self.burst.set_opacity(ep)
         else:
             self.sweat.set_opacity(0); self.burst.set_opacity(0)
-        if (t % 3.1) < .13:  # blink
+        bt = (t + (1.1 if self.fem else 0)) % 3.1
+        if bt < .13 or (2.7 < bt < 2.78 and int(t) % 3 == 0):  # blink (sometimes double)
             self.eyes_w.stretch_to_fit_height(.04)
             for grp in (self.irises, self.pupils, self.glints):
                 grp.set_opacity(0)
         tilt = .1 * ep if emote == "think" else (.05 * np.sin(3 * t) if speaking else .04 * np.sin(2.4 * t))
         self.headg.rotate(tilt, about_point=[0, .3, 0])
         self.headg.shift(UP * (.04 * amp if speaking else 0))
+        if speaking:
+            self.headg.rotate(-.035 * amp * np.sin(5.5 * t), about_point=[0, .3, 0])
+        self.body.scale(1 + .014 * np.sin(2.6 * t), about_point=[0, -1.0, 0])
         self.hair_back.rotate(.025 * np.sin(2.5 * t + 1), about_point=[0, 1.6, 0])
         sc = scale * (1 + (.035 * amp if speaking else 0) + squash)
         g.scale(sc, about_point=[0, -1.75, 0])
@@ -1098,16 +1110,37 @@ class SceneRenderer(MovingCameraScene):
         bar = box(FW, .12, YEL, 0, 3.94)
         hud += [tag_p, tag_t, bar_bg, bar]
 
-        parts = chunks_of(spec.get("narration"), 5)
-        wts = [len(p) + 1 for p in parts]
-        cuts, acc = [], 0.1
+        narr_words = (spec.get("narration") or "").split()
+        wt = []
+        try:
+            wt = json.load(open(os.environ.get("SCENE_WORDS", "")))
+        except Exception:
+            wt = []
         usable = max(.5, dur - .3)
-        for w_ in wts:
-            acc += usable * w_ / sum(wts)
-            cuts.append(acc)
+        if len(wt) == len(narr_words) and wt:
+            times = [(float(a_[1]) + .05, float(a_[2]) + .05) for a_ in wt]
+        else:  # estimate from word length
+            tot = sum(len(w_) + 1 for w_ in narr_words) or 1
+            times, acc = [], .1
+            for w_ in narr_words:
+                d_ = usable * (len(w_) + 1) / tot
+                times.append((acc, acc + d_))
+                acc += d_
+        CH = 5
+        parts, groups, cuts = [], [], []
+        for i0 in range(0, max(1, len(narr_words)), CH):
+            ws_ = narr_words[i0:i0 + CH]
+            parts.append(" ".join(ws_))
+            groups.append(times[i0:i0 + CH])
+        if not narr_words:
+            parts, groups = [""], [[(0, usable)]]
+        for gi, g_ in enumerate(groups):
+            nxt = groups[gi + 1][0][0] if gi + 1 < len(groups) else 1e9
+            cuts.append(nxt if nxt < 1e8 else 1e9)
+        cuts = [(c_ + g_[-1][1]) / 2 if c_ < 1e8 else c_ for c_, g_ in zip(cuts, groups)]
         caps = []
         for p in parts:
-            c = fit(T(p, 44, WHITE, heavy=True), 11.6).move_to([0, -3.3, 0])
+            c = fit(T(p, 46, WHITE, heavy=True), 11.6).move_to([0, -3.3, 0])
             c.set_stroke(BLACK, 8, background=True)
             c.set_opacity(0)
             caps.append(c)
@@ -1257,6 +1290,16 @@ class SceneRenderer(MovingCameraScene):
                 c.set_opacity(1 if i == k else 0)
             pop = 1 + .22 * max(0.0, 1 - (t - st["cap_t"]) / .18)
             caps[k].scale(pop)
+            if k < len(groups):
+                gl = list(caps[k].submobjects)
+                lens = [len(w_.replace(" ", "")) for w_ in parts[k].split()]
+                if sum(lens) == len(gl):
+                    pos = 0
+                    for wi, (wl, (w0, w1)) in enumerate(zip(lens, groups[k])):
+                        col = YEL if (w0 - .05 <= t < w1 + .03) else WHITE
+                        for gm in gl[pos:pos + wl]:
+                            gm.set_fill(col)
+                        pos += wl
             for m in hud:
                 m.scale(1 / z, about_point=ORIGIN).shift([px, py, 0])
             if wipe is not None:
