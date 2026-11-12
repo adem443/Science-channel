@@ -1055,9 +1055,12 @@ class SceneRenderer(MovingCameraScene):
             self.bring_to_back(bd)
             tx0 = 1.7 * side if layout in ("solo", "closeup") else 0.0
             main = T(spec.get("text") or spec.get("value") or "", 84 if kind == "title" else 120, YEL if kind == "stat" else WHITE, heavy=True)
-            fit(main, 9.2 if tx0 else 11).move_to([tx0, 2.35, 0])
+            fit(main, 8.2 if tx0 else 10.4)
+            if main.height > 1.25:
+                main.scale(1.25 / main.height)
+            main.move_to([tx0, 2.45, 0])
             sub = T(spec.get("subtitle") or spec.get("label") or "", 36, WHITE)
-            fit(sub, 9.2 if tx0 else 11).move_to([tx0, 1.4, 0])
+            fit(sub, 8.2 if tx0 else 10.4).move_to([tx0, 1.5, 0])
             for m, t0 in ((main, .2), (sub, .8)):
                 m.save_state()
                 pops.append((m, t0))
@@ -1108,7 +1111,7 @@ class SceneRenderer(MovingCameraScene):
         tag_t.move_to(tag_p.get_center())
         bar_bg = box(FW, .12, "#333333", 0, 3.94)
         bar = box(FW, .12, YEL, 0, 3.94)
-        hud += [tag_p, tag_t, bar_bg, bar]
+        hud += []  # topic tag and progress bar removed (clean frame)
 
         narr_words = (spec.get("narration") or "").split()
         wt = []
