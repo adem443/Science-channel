@@ -1,4 +1,4 @@
-import json, os, random, textwrap, wave
+import json, os, random, re, textwrap, wave
 import numpy as np
 from manim import *
 
@@ -1046,6 +1046,9 @@ class SceneRenderer(MovingCameraScene):
 
         # --- kind extras
         pops, rays = [], None
+        counter_main, counter_w0 = None, 0.0
+        counter = None   # (prefix, target, decimals, suffix, orig_main, width_cap)
+        title_fx = None  # (main, sweep, underline)
         if kind in ("title", "stat"):
             rays = VGroup(*[Polygon([0, 0, 0], [12 * np.cos(a), 12 * np.sin(a), 0], [12 * np.cos(a + TAU / 36), 12 * np.sin(a + TAU / 36), 0]).set_fill(WHITE, .07).set_stroke(width=0)
                             for a in np.arange(0, TAU, TAU / 18)])
@@ -1061,6 +1064,24 @@ class SceneRenderer(MovingCameraScene):
             main.move_to([tx0, 2.45, 0])
             sub = T(spec.get("subtitle") or spec.get("label") or "", 36, WHITE)
             fit(sub, 8.2 if tx0 else 10.4).move_to([tx0, 1.5, 0])
+            raw_val = str(spec.get("text") or spec.get("value") or "")
+            mm = re.match(r"^(\D*?)(\d[\d,]*\.?\d*)(.*)$", raw_val) if kind == "stat" else None
+            if mm:
+                try:
+                    num = float(mm.group(2).replace(",", ""))
+                    dec = len(mm.group(2).split(".")[1]) if "." in mm.group(2) else 0
+                    counter = (mm.group(1), num, dec, mm.group(3), main.width / max(T(raw_val, 120, YEL, heavy=True).width, 1e-6), tx0)
+                    counter_main, counter_w0 = main, main.width
+                except ValueError:
+                    counter = None
+            if kind == "title":
+                sweep = Polygon([-.5, -1, 0], [.1, -1, 0], [.6, 1, 0], [0, 1, 0]).set_fill(WHITE, .0).set_stroke(width=0)
+                underline = Line([-1, 0, 0], [1, 0, 0]).set_stroke(YEL, 10)
+                underline.move_to([tx0, 2.45 - main.height / 2 - .14, 0])
+                underline.save_state()
+                sweep.move_to([tx0, 2.45, 0])
+                self.add(sweep, underline)
+                title_fx = (main, sweep, underline, tx0)
             for m, t0 in ((main, .2), (sub, .8)):
                 m.save_state()
                 pops.append((m, t0))
@@ -1262,6 +1283,27 @@ class SceneRenderer(MovingCameraScene):
             for m, t0 in pops:
                 m.restore()
                 m.scale(max(ease_back((t - t0) / .4), 1e-3))
+            if counter is not None:
+                pre, target, dec, suf, w0, cx0 = counter
+                f = ease_io(clamp((t - .35) / min(1.7, max(.8, dur * .5))))
+                v = target * f
+                txt = f"{pre}{v:,.{dec}f}{suf}"
+                nt = T(txt, 120, YEL, heavy=True)
+                nt.scale(w0 * (counter_main.width / max(counter_w0, 1e-6)))
+                nt.move_to(counter_main.get_center())
+                counter_main.become(nt)
+            if title_fx is not None:
+                tm, sw_, ul_, tcx = title_fx
+                gl = list(tm.submobjects)
+                for gi, gm in enumerate(gl):
+                    gm.set_fill(opacity=clamp((t - .25 - gi * .04) / .12))
+                    gm.set_stroke(opacity=clamp((t - .25 - gi * .04) / .12))
+                ul_.restore()
+                ul_.stretch_to_fit_width(max(.01, tm.width * clamp((t - .55) / .5)))
+                ul_.move_to([tcx, 2.45 - tm.height / 2 - .14, 0] if tm.height else [tcx, 2.0, 0])
+                sx = tcx - 6 + 12 * clamp((t - 1.0) / .7)
+                sw_.move_to([sx, 2.45, 0])
+                sw_.set_fill(WHITE, .35 * np.sin(PI * clamp((t - 1.0) / .7)))
             if pun is not None:
                 pun.restore()
                 punch_rays.restore()
@@ -1273,6 +1315,10 @@ class SceneRenderer(MovingCameraScene):
             # camera
             z, px, py = camera_state(t)
             frame.set(width=FW / z).move_to([px, py, 0])
+            par = (.35 * px, .35 * py)   # parallax: the far background follows the camera partly
+            pp = st.get("par", (0.0, 0.0))
+            bd.shift([par[0] - pp[0], par[1] - pp[1], 0])
+            st["par"] = par
             # HUD follows camera
             k = next((i for i, c in enumerate(cuts) if t < c), len(caps) - 1)
             if k != st["cap"]:
