@@ -1,7 +1,8 @@
 # Spark & Why ayarlari
-upload=0
-# Video bu tarihte otomatik herkese acik olur (Turkiye saati). Silersen video ozel kalir.
-publish_at=2026-11-13T19:00:00+03:00
+# 1 = video uretilince YouTube'a yuklenir (0 = sadece dosya olarak kalir)
+upload=1
+# Her video, yuklendikten sonraki ilk 01:00'da (Turkiye saati, en az 3 saat sonra) herkese acik olur
+publish_daily=01:00
 privacy=private
-# 1 yaparsan haftada 3 kez otomatik video uretir. Simdilik 0.
-auto=0
+# 1 = GitHub haftada 4 kez kendiliginden video uretir (Pazar, Sali, Persembe, Cumartesi 18:00)
+auto=1

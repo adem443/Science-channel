@@ -488,6 +488,19 @@ def publish_time(cfg):
     """Returns a UTC ISO string if publish_at is set and still in the future, else None."""
     import datetime as dt
     v = cfg.get("publish_at", "")
+    daily = cfg.get("publish_daily", "")  # e.g. 01:00 = every video goes public at the next 01:00 Turkey time
+    if daily and not v:
+        try:
+            hh, mm = [int(x) for x in daily.split(":")]
+            tr = dt.timezone(dt.timedelta(hours=3))
+            now = dt.datetime.now(tr)
+            cand = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+            if cand < now + dt.timedelta(hours=3):
+                cand += dt.timedelta(days=1)
+            return cand.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        except Exception:
+            print("publish_daily could not be read, ignoring:", daily)
+            return None
     if not v:
         return None
     try:
