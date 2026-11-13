@@ -93,6 +93,25 @@ def ensure_fonts():
             print("Could not install fonts-roboto (continuing with default font):", e)
 
 
+SERIES_DEFAULT = "What If? Science Scenarios"
+SERIES_OTHER = "Everyday Science Explained"
+
+
+def series_for(topic, brief, cfg=None):
+    """Playlist (series) of a video. A topics.txt note may contain '[Series: Is It Really Dangerous?]'.
+    Otherwise: 'What if...' / 'What would happen if...' topics go to the What If series, the rest to Everyday Science.
+    settings.txt playlist=<name> forces one name for all videos, playlist= (empty) turns playlists off."""
+    cfg = cfg or {}
+    if "playlist" in cfg and cfg["playlist"].lower() != "auto":
+        return cfg["playlist"]
+    m = re.search(r"\[\s*series\s*:\s*([^\]]+)\]", brief or "", re.I)
+    if m:
+        return m.group(1).strip()
+    if re.match(r"\s*what\s+(if|would happen|will happen)", topic or "", re.I):
+        return SERIES_DEFAULT
+    return SERIES_OTHER
+
+
 def pick_topic():
     """Returns (key, topic, brief). A topics.txt line may be 'Topic || notes for the writer'."""
     used = set(open("used.txt", encoding="utf-8").read().splitlines()) if os.path.exists("used.txt") else set()
@@ -219,7 +238,7 @@ def generate(topic, brief="", client=None, sleep=time.sleep):
                     'Shot 4 must be kind "title" (layout "solo", speaker "guide", text = a 2-3 word ALL-CAPS version of the topic, narration = a short friendly welcome to Spark and Why plus a promise of what the viewer will learn and the reassuring answer at the end). '
                     'After that, continue with the rest of this section.') if i == 0 else
                    ('End with the reassuring takeaway, then ask viewers ONE specific, easy question to answer in the comments (for example which moment of the scenario scared them most), '
-                     'then tell them another what-if video is waiting on the channel, and finish with a warm sign-off inviting viewers to subscribe for more everyday science.' if i == len(secs) - 1 else
+                     'then tell them another video from the same series is waiting on the channel, and finish with a warm sign-off inviting viewers to subscribe for more everyday science.' if i == len(secs) - 1 else
                     'Do not repeat the intro; continue the story.'))
         p = fill(SECTION_PROMPT).replace("__OUTLINE__", outline).replace("__N__", str(i + 1)).replace("__TOTAL__", str(len(secs)))
         p = (p.replace("__NAME__", str(sec["name"])).replace("__BEATS__", "; ".join(str(b) for b in (sec.get("beats") or [])))
@@ -552,7 +571,7 @@ def add_to_playlist(yt, video_id, name):
                 break
         if not pid:
             pid = yt.playlists().insert(part="snippet,status", body={
-                "snippet": {"title": name, "description": "Scary what-if scenarios explained with real science, and the reassuring answer."},
+                "snippet": {"title": name, "description": "Scary questions about our world, answered with real science, and the reassuring truth at the end."},
                 "status": {"privacyStatus": "public"}}).execute()["id"]
         yt.playlistItems().insert(part="snippet", body={"snippet": {
             "playlistId": pid, "resourceId": {"kind": "youtube#video", "videoId": video_id}}}).execute()
@@ -587,7 +606,7 @@ def upload(video, thumb, data, cfg=None):
         yt.thumbnails().set(videoId=resp["id"], media_body=MediaFileUpload(thumb)).execute()
     except Exception as e:
         print("Thumbnail upload failed (is the channel verified?):", e)
-    add_to_playlist(yt, resp["id"], cfg.get("playlist", "What If? Science Scenarios"))
+    add_to_playlist(yt, resp["id"], data.get("series", ""))
     return resp["id"]
 
 
@@ -617,6 +636,7 @@ if __name__ == "__main__":
     except Exception:
         pass
     if (os.environ.get("UPLOAD") == "1" or cfg.get("upload") == "1") and os.environ.get("YT_REFRESH_TOKEN"):
+        data["series"] = series_for(topic, brief, cfg)
         vid = upload(video, thumb, data, cfg)
         open("used.txt", "a", encoding="utf-8").write(key + "\n")
         print("Uploaded: https://youtu.be/" + vid)

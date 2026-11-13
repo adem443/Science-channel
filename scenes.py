@@ -1423,7 +1423,7 @@ class ThumbScene(Scene):
         if sp.get("scene") == "zombie":
             self.zombie_thumb(sp)
             return
-        ic_x, ic_y = 3.5, -1.65
+        ic_x, ic_y = 3.5, -1.95
         # sunburst from the icon
         for i in range(24):
             a = i * TAU / 24
@@ -1446,8 +1446,8 @@ class ThumbScene(Scene):
         ring = Circle(radius=1.9).move_to([ic_x, ic_y, 0]).set_fill(opacity=0).set_stroke("#ff2d2d", 14)
         self.add(sh, g, ring)
         if sp.get("strike"):
-            self.add(Line([ic_x - 1.7, ic_y + 1.7, 0], [ic_x + 1.7, ic_y - 1.7, 0]).set_stroke("#000000", 40),
-                     Line([ic_x - 1.7, ic_y + 1.7, 0], [ic_x + 1.7, ic_y - 1.7, 0]).set_stroke("#ff1a1a", 28))
+            self.add(Line([ic_x - 1.5, ic_y + 1.5, 0], [ic_x + 1.5, ic_y - 1.5, 0]).set_stroke("#000000", 40),
+                     Line([ic_x - 1.5, ic_y + 1.5, 0], [ic_x + 1.5, ic_y - 1.5, 0]).set_stroke("#ff1a1a", 28))
         # satellite icons, each crossed out
         sats = [i for i in (sp.get("icons") or []) if i in ICONS][:4]
         if not sats and sp.get("icon2") in ICONS:
@@ -1480,14 +1480,14 @@ class ThumbScene(Scene):
         for i, ln in enumerate(lines):
             t = T(ln, 150, cols[i % len(cols)], heavy=True)
             t.set_stroke(BLACK, 22, background=True)
-            fit(t, 8.3)
+            fit(t, 7.6)
             if len(lines) == 3 and i == 0:
                 fit(t, 6.2)
                 if t.height > .8:
                     t.scale(.8 / t.height)
             elif t.height > 1.7:
                 t.scale(1.7 / t.height)
-            t.move_to([2.7, ys[i], 0]).rotate(-.03)
+            t.move_to([2.6, ys[i], 0]).rotate(-.03)
             self.add(t)
         # soft vignette for punch
         for i in range(8):
