@@ -5,4 +5,6 @@ upload=1
 publish_daily=01:00
 privacy=private
 # 1 = GitHub haftada 4 kez kendiliginden video uretir (Pazar, Sali, Persembe, Cumartesi 18:00)
-auto=1
+auto=0
+# Her video bu seri listesine eklenir (bos birakirsan eklenmez)
+playlist=What If? Science Scenarios

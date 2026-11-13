@@ -1,3 +1,4 @@
+import re
 import asyncio, glob, json, os, random, re, subprocess, sys, time
 from concurrent.futures import ThreadPoolExecutor
 import edge_tts
@@ -44,8 +45,8 @@ Topic: "__TOPIC__"
 __BRIEF__
 __CAST__
 Plan a video of about 6 minutes (it must stay between 5 and 7 minutes). Return ONLY valid JSON:
-{"title": "max 70 chars, curiosity-driven, not misleading",
- "description": "3-4 paragraphs + hashtags. Mention that visuals and narration are made with AI tools.",
+{"title": "30-50 characters (hard max 60), plain sentence case or Title Case, NO all-caps words, NO emoji, key subject at the start, curiosity-driven; for what-if topics put the viewer inside the scenario with 'you' or use the pattern 'What If ...?'; not misleading",
+ "description": "3-4 paragraphs + hashtags. The first two sentences must contain the topic's main keywords. Mention that visuals and narration are made with AI tools.",
  "tags": ["..."],
  "thumb": {"text": "headline in up to 3 lines separated by |, e.g. WHAT IF THE INTERNET|SHUT DOWN|FOR 2 DAYS? (line 1 small, lines 2-3 huge, max 16 chars per line)", "icon": "<icon that shows the topic>", "icons": ["up to 4 extra icons about the topic"], "strike": true or false (true when the idea is something disappearing / failing / forbidden: draws a big red slash over the icon), "scene": "(optional) zombie = a full zombie-apocalypse thumbnail, only for zombie topics",
    "theme": "red|blue|purple|green|gold", "character": "you|guide"},
@@ -217,7 +218,8 @@ def generate(topic, brief="", client=None, sleep=time.sleep):
                     'End shot 3 on an unanswered question or cliffhanger. '
                     'Shot 4 must be kind "title" (layout "solo", speaker "guide", text = a 2-3 word ALL-CAPS version of the topic, narration = a short friendly welcome to Spark and Why plus a promise of what the viewer will learn and the reassuring answer at the end). '
                     'After that, continue with the rest of this section.') if i == 0 else
-                   ('End with a practical takeaway and a warm sign-off inviting viewers to subscribe for more everyday science.' if i == len(secs) - 1 else
+                   ('End with the reassuring takeaway, then ask viewers ONE specific, easy question to answer in the comments (for example which moment of the scenario scared them most), '
+                     'then tell them another what-if video is waiting on the channel, and finish with a warm sign-off inviting viewers to subscribe for more everyday science.' if i == len(secs) - 1 else
                     'Do not repeat the intro; continue the story.'))
         p = fill(SECTION_PROMPT).replace("__OUTLINE__", outline).replace("__N__", str(i + 1)).replace("__TOTAL__", str(len(secs)))
         p = (p.replace("__NAME__", str(sec["name"])).replace("__BEATS__", "; ".join(str(b) for b in (sec.get("beats") or [])))
@@ -251,6 +253,22 @@ def generate(topic, brief="", client=None, sleep=time.sleep):
     return meta
 
 
+def fix_title(t, shots=None):
+    """Title rules from the viral-video research: 30-50 chars (max 60), no emoji, no ALL-CAPS words."""
+    t = re.sub(r"[^\x00-\x7F\u00C0-\u024F]", "", str(t or "")).strip()
+    keep = {"AI", "UK", "US", "USA", "GPS", "DNA", "RNA", "NASA", "ISS", "TV", "UV", "CO2", "EMP", "USGS"}
+    t = " ".join(w.capitalize() if (w.isupper() and len(w) > 1 and w.strip("?!.,") not in keep) else w for w in t.split())
+    if len(t) > 60:
+        cut = t[:60]
+        t = (cut[:cut.rfind(" ")] if " " in cut else cut).rstrip(" ,:;-")
+        stop = {"a", "an", "and", "the", "of", "to", "in", "on", "for", "with", "or", "at", "by", "into"}
+        parts = t.split()
+        while len(parts) > 3 and parts[-1].lower() in stop:
+            parts.pop()
+        t = " ".join(parts)
+    return t or "What If...?"
+
+
 def clean(data):
     shots = []
     for s in data.get("shots") or []:
@@ -276,6 +294,7 @@ def clean(data):
     if len(shots) < 5:
         raise SystemExit("Gemini returned too few usable shots")
     data["shots"] = shots[:150]
+    data["title"] = fix_title(data.get("title"), data.get("shots"))
     th = data.get("thumb") or {}
     th["icon"] = th.get("icon") if th.get("icon") in ICONS else "warning"
     th["text"] = str(th.get("text") or data.get("title", "WOW"))[:40]
@@ -517,6 +536,31 @@ def publish_time(cfg):
     return t.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 
+def add_to_playlist(yt, video_id, name):
+    """Series playlist helps the 'next video' signal. Empty name (playlist= in settings.txt) turns it off."""
+    if not name:
+        return
+    try:
+        pid, token = None, None
+        while not pid:
+            r = yt.playlists().list(part="snippet", mine=True, maxResults=50, pageToken=token).execute()
+            for it in r.get("items", []):
+                if it["snippet"]["title"] == name:
+                    pid = it["id"]
+            token = r.get("nextPageToken")
+            if not token:
+                break
+        if not pid:
+            pid = yt.playlists().insert(part="snippet,status", body={
+                "snippet": {"title": name, "description": "Scary what-if scenarios explained with real science, and the reassuring answer."},
+                "status": {"privacyStatus": "public"}}).execute()["id"]
+        yt.playlistItems().insert(part="snippet", body={"snippet": {
+            "playlistId": pid, "resourceId": {"kind": "youtube#video", "videoId": video_id}}}).execute()
+        print("Added to playlist:", name)
+    except Exception as e:
+        print("Playlist step skipped:", e)
+
+
 def upload(video, thumb, data, cfg=None):
     cfg = cfg or {}
     c = Credentials(None, refresh_token=os.environ["YT_REFRESH_TOKEN"],
@@ -543,6 +587,7 @@ def upload(video, thumb, data, cfg=None):
         yt.thumbnails().set(videoId=resp["id"], media_body=MediaFileUpload(thumb)).execute()
     except Exception as e:
         print("Thumbnail upload failed (is the channel verified?):", e)
+    add_to_playlist(yt, resp["id"], cfg.get("playlist", "What If? Science Scenarios"))
     return resp["id"]
 
 
