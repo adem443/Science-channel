@@ -20,6 +20,7 @@ WORKERS = int(os.environ.get("RENDER_WORKERS", str(max(1, min(4, os.cpu_count() 
 UPSCALE = QUALITY != "1080" and os.environ.get("UPSCALE_1080", "1") == "1"
 MUSIC = os.environ.get("MUSIC", "1") == "1"
 FALLBACKS = []
+BACKDROPS = ("lab", "space", "ocean", "city", "nature", "bedroom", "night", "forest", "map", "alert", "hospital", "kitchen", "classroom", "desert", "mountain", "cave", "sky", "factory", "road", "abstract")
 
 ICONS = ("battery phone thermometer flame bolt sun moon earth planet star cloud drop gear magnet atom dna heart "
          "brain virus plant rocket bulb magnifier clock warning check cross gas explosion shield wave question "
@@ -29,15 +30,16 @@ SHOT_SCHEMA = """{"kind": "scene|title|stat|diagram",
    "speaker": "guide|you",
    "narration": "8-22 words (one or two short sentences) spoken in this shot",
    "layout": "duo|solo|walk|prop_only|closeup",
-   "backdrop": "lab|space|ocean|city|nature|bedroom|night|forest|map|alert",
+   "backdrop": "lab|space|ocean|city|nature|bedroom|night|forest|map|alert|hospital|kitchen|classroom|desert|mountain|cave|sky|factory|road|abstract",
    "mood": "calm|tense|danger|relief",
    "props": [{"icon": "<icon>", "anim": "pop|pulse|shake|spin|float|grow|rise|swell", "label": "max 3 words"}],
    "reaction": "none|shock|think|happy|worried",
+   "emotion": "neutral|fear|shock|worried|think|sad|angry|happy",
    "punch": "(optional) 1-3 ALL-CAPS words flashed on screen for impact",
    "text": "(title/stat only) big text or number, e.g. HOUR 12", "subtitle": "(title/stat only) caption",
    "nodes": ["(diagram only) 3-4 short steps"]}"""
 
-CAST = ('Two cartoon characters: "guide" = Spark, a warm, witty male scientist who explains; '
+CAST = ('Two cartoon characters: "guide" = Spark, the channel host: a warm, witty man in a light-blue sweater who explains; '
         '"you" = Why, a curious, funny young woman who asks the questions viewers think and reacts.')
 
 META_PROMPT = """You are the head writer of a fast, funny, visually rich English science-explainer YouTube channel ("Spark & Why") for a global audience.
@@ -49,6 +51,7 @@ Plan a video of about 6 minutes (it must stay between 5 and 7 minutes). Return O
  "description": "3-4 paragraphs + hashtags. The first two sentences must contain the topic's main keywords. Mention that visuals and narration are made with AI tools.",
  "tags": ["..."],
  "thumb": {"text": "headline in up to 3 lines separated by |, e.g. WHAT IF THE INTERNET|SHUT DOWN|FOR 2 DAYS? (line 1 small, lines 2-3 huge, max 16 chars per line)", "icon": "<icon that shows the topic>", "icons": ["up to 4 extra icons about the topic"], "strike": true or false (true when the idea is something disappearing / failing / forbidden: draws a big red slash over the icon), "scene": "(optional) zombie = a full zombie-apocalypse thumbnail, only for zombie topics",
+   "backdrop": "<one backdrop name that shows the PLACE or world of the topic, e.g. night for a blackout, hospital, space, ocean, desert, factory, cave, sky>", "fear": true or false (true when the topic is scary, deadly or catastrophic: the thumbnail turns dark and red),
    "theme": "red|blue|purple|green|gold", "character": "you|guide"},
  "claims_to_check": ["key factual claims a human should verify"],
  "sections": [ exactly 6 sections in story order, each {"name": "short name", "beats": ["4-6 specific points/facts/questions this section covers"]} ] }
@@ -71,6 +74,8 @@ Rules:
 - EVERY shot's props must visually illustrate exactly what that shot's narration says. Use at most 2 props and no long on-screen text.
 - Use anim "swell" only for battery, "rise" only for thermometer, "grow" only for chart.
 - Backdrops: night = dark city with lit windows (blackouts, fear), forest = dark misty forest (mysterious nature), map = world map with red dots spreading (outbreaks, spread over countries), alert = red emergency room (alarms, crisis). Mood: use danger for the scariest moments (camera shakes, red tint), tense for rising worry, relief for the calming reassurance at the end (warm glow), calm otherwise. Build a clear emotional arc: curiosity, rising danger, peak, then relief.
+- "emotion" = the facial expression both characters wear during the whole shot; it MUST match what the narration says at that moment: fear for danger, death, disaster or something scary; shock for a surprising number or twist; worried for rising risk or doubt; think when explaining a mechanism or a puzzle; sad for loss or bad outcomes; angry for injustice or villains; happy ONLY for genuinely good news, relief or a joke (at most 1 shot in 6); neutral for plain explanation. Never leave everyone smiling, and change the emotion whenever the story changes.
+- BACKDROP CHOICE: pick the backdrop from the PLACE the narration is talking about in that shot, and change it whenever the place changes: hospital = patients, doctors, body in medical context; kitchen = food, cooking, household chemistry; classroom = school, learning, simple lessons; desert = heat, drought, sand; mountain = altitude, snow, avalanches; cave = underground, darkness, deep earth; sky = air, flight, weather, clouds, atmosphere; factory = industry, machines, production, energy plants; road = driving, traffic, travel; ocean/forest/nature/space as named; lab = experiments and explanations; bedroom = sleep and daily life at home; abstract = ideas with no place (time, brain, numbers, theories). Use "city" or "night" ONLY when the narration is really about a city, and never more than twice in the whole section. Never use the same backdrop in 3 shots in a row; use at least 4 different backdrops per section.
 - Pace: change layout or backdrop almost every shot; never repeat the same layout+backdrop twice in a row. Use "walk" now and then, "closeup" for emotional or dramatic lines, "prop_only" (speaker must be "guide") for cinematic explanation moments, "solo" for emphasis, "stat" shots for big numbers or timeline marks, "diagram" for cause-and-effect chains.
 - "you" speaks in about one shot of three: short funny questions, jokes or wrong guesses (max 20 words) that "guide" answers. "reaction" (for the listener) in about 1 shot of 3. "punch" in about 1 shot of 4, always a different word.
 - Tell it like a story: concrete real-life examples, analogies, humor, and end the section with a mini cliffhanger that leads into the next one (except in the last section).
@@ -299,7 +304,8 @@ def clean(data):
             s["layout"] = "solo"
         s["punch"] = str(s.get("punch") or "")[:28]
         s["mood"] = s.get("mood") if s.get("mood") in ("calm", "tense", "danger", "relief") else "calm"
-        s["backdrop"] = s.get("backdrop") if s.get("backdrop") in ("lab", "space", "ocean", "city", "nature", "bedroom", "night", "forest", "map", "alert") else "lab"
+        s["emotion"] = s.get("emotion") if s.get("emotion") in ("neutral", "fear", "shock", "worried", "think", "sad", "angry", "happy") else ""
+        s["backdrop"] = s.get("backdrop") if s.get("backdrop") in BACKDROPS else "lab"
         if s.get("kind") not in ("scene", "title", "stat", "diagram"):
             s["kind"] = "scene"
         props = []
@@ -310,6 +316,14 @@ def clean(data):
                 props.append(p)
         s["props"] = props
         shots.append(s)
+    n_city = 0
+    for i, sh in enumerate(shots):
+        if sh["backdrop"] in ("city", "night"):
+            n_city += 1
+            if n_city > 2:
+                sh["backdrop"] = "abstract"
+        if i >= 2 and sh["backdrop"] == shots[i - 1]["backdrop"] == shots[i - 2]["backdrop"]:
+            sh["backdrop"] = "abstract" if sh["backdrop"] != "abstract" else "sky"
     if len(shots) < 5:
         raise SystemExit("Gemini returned too few usable shots")
     data["shots"] = shots[:150]
@@ -319,6 +333,8 @@ def clean(data):
     th["text"] = str(th.get("text") or data.get("title", "WOW"))[:40]
     th["icon2"] = th.get("icon2") if th.get("icon2") in ICONS else ""
     th["strike"] = bool(th.get("strike"))
+    th["backdrop"] = th.get("backdrop") if th.get("backdrop") in BACKDROPS else "abstract"
+    th["fear"] = bool(th.get("fear"))
     th["scene"] = "zombie" if th.get("scene") == "zombie" else ""
     th["icons"] = [i for i in (th.get("icons") or []) if i in ICONS][:4]
     data["thumb"] = th
@@ -612,6 +628,10 @@ def upload(video, thumb, data, cfg=None):
 
 if __name__ == "__main__":
     cfg = read_settings()
+    for _sp, _key in (("guide", "voice_guide"), ("you", "voice_you")):
+        _v = (cfg.get(_key) or "").strip()
+        if _v:
+            VOICES[_sp] = [_v] + [x for x in VOICES[_sp] if x != _v]
     if os.environ.get("GITHUB_EVENT_NAME") == "schedule" and cfg.get("auto", "0") != "1":
         print("Scheduled run skipped: auto=0 in settings.txt (manual runs only).")
         sys.exit(0)

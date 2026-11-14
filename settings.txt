@@ -5,7 +5,12 @@ upload=1
 publish_daily=01:00
 privacy=private
 # 1 = GitHub haftada 4 kez kendiliginden video uretir (Pazar, Sali, Persembe, Cumartesi 18:00)
-auto=1
+auto=0
 # Her video kendi serisinin playlist'ine eklenir. auto = konuya gore otomatik (What If / Everyday Science / topics.txt'teki '[Series: ...]' notu).
 # Bos birakirsan hic playlist'e eklenmez; bir isim yazarsan hepsi o listeye gider.
 playlist=auto
+# Seslerin degistirilmesi (istege bagli). Bos birakirsan varsayilan kullanilir.
+# Spark (erkek) secenekleri: en-US-AndrewNeural (sicak, varsayilan) | en-US-GuyNeural (derin, haber spikeri gibi) | en-GB-RyanNeural (Ingiliz, belgesel gibi) | en-US-ChristopherNeural (sakin, anlatici)
+# Why (kadin) secenekleri: en-US-AvaNeural (varsayilan) | en-US-JennyNeural | en-US-AriaNeural | en-GB-SoniaNeural
+voice_guide=
+voice_you=

@@ -516,6 +516,305 @@ def _fire():
 ICON_NAMES = sorted(ICONS)
 
 
+
+# ---------------------------------------------------------------- realistic icon overrides
+_LAND = {
+    "na": [(-168, 66), (-150, 71), (-125, 70), (-95, 72), (-80, 70), (-62, 60), (-55, 50), (-67, 44), (-76, 35), (-81, 25), (-90, 29), (-97, 26), (-105, 22), (-95, 16), (-83, 9), (-78, 8), (-88, 15), (-105, 20), (-112, 30), (-124, 40), (-125, 49), (-140, 60), (-165, 60)],
+    "sa": [(-80, 8), (-62, 11), (-50, 0), (-35, -6), (-39, -20), (-48, -26), (-58, -38), (-65, -42), (-68, -55), (-74, -50), (-72, -30), (-70, -18), (-81, -5)],
+    "eu": [(-10, 36), (-9, 44), (-2, 48), (3, 51), (10, 57), (18, 60), (25, 70), (40, 67), (40, 45), (28, 41), (24, 37), (15, 38), (9, 44), (3, 43), (-6, 37)],
+    "af": [(-17, 21), (-6, 36), (10, 37), (32, 31), (43, 12), (51, 12), (41, -2), (40, -15), (35, -25), (20, -35), (12, -18), (9, 4), (-8, 5), (-17, 14)],
+    "as": [(40, 45), (40, 67), (70, 73), (110, 77), (150, 70), (180, 66), (162, 58), (142, 50), (140, 40), (122, 30), (121, 22), (108, 18), (105, 10), (100, 14), (98, 8), (80, 8), (72, 20), (58, 25), (50, 30), (35, 36), (28, 41)],
+    "au": [(114, -22), (130, -12), (136, -12), (145, -12), (153, -28), (146, -39), (135, -34), (115, -34)],
+    "gl": [(-55, 60), (-45, 62), (-20, 70), (-20, 82), (-50, 83), (-70, 78)],
+    "an": [(-180, -72), (-90, -70), (0, -69), (90, -66), (180, -72), (180, -90), (-180, -90)],
+}
+
+
+def _dens(pts, k=4):
+    out = []
+    for i, p in enumerate(pts):
+        q = pts[(i + 1) % len(pts)]
+        for j in range(k):
+            out.append((p[0] + (q[0] - p[0]) * j / k, p[1] + (q[1] - p[1]) * j / k))
+    return out
+
+
+def _proj(lon, lat, lon0, lat0):
+    lo, la, lo0, la0 = np.radians(lon), np.radians(lat), np.radians(lon0), np.radians(lat0)
+    x = np.cos(la) * np.sin(lo - lo0)
+    y = np.cos(la0) * np.sin(la) - np.sin(la0) * np.cos(la) * np.cos(lo - lo0)
+    c = np.sin(la0) * np.sin(la) + np.cos(la0) * np.cos(la) * np.cos(lo - lo0)
+    if c < 0:
+        n = np.hypot(x, y) or 1.0
+        x, y = x / n, y / n
+    return x, y, c
+
+
+def globe_group(lon0=15, lat0=18, r=1.0):
+    ocean = S(Circle(radius=r), "#1f6fd1", sw=4)
+    shade_ = Difference(Circle(radius=r), Circle(radius=r).shift([-.28 * r, .28 * r, 0])).set_fill("#06204a", .38).set_stroke(width=0)
+    g = VGroup(ocean)
+    for nm, pts in _LAND.items():
+        P = [_proj(lo, la, lon0, lat0) for lo, la in _dens(pts)]
+        if all(p[2] < 0 for p in P):
+            continue
+        poly = Polygon(*[[p[0] * r * .985, p[1] * r * .985, 0] for p in P])
+        col = "#f2f7fb" if nm == "an" else ("#5fae56" if nm in ("na", "sa", "eu", "as", "gl") else "#c9a35a" if nm == "af" else "#d6a860")
+        poly.set_fill(col, 1).set_stroke("#2f6a3a", 1.5)
+        try:
+            poly = Intersection(poly, Circle(radius=r * .985)).set_fill(col, 1).set_stroke("#2f6a3a", 1.5)
+        except Exception:
+            pass
+        g.add(poly)
+    for cx, cy, w in ((-.35, .5, .5), (.3, .15, .6), (-.15, -.4, .45), (.5, -.55, .35)):
+        g.add(Ellipse(width=w * r, height=.14 * r).set_fill("#ffffff", .55).set_stroke(width=0).move_to([cx * r, cy * r, 0]).rotate(.15))
+    g.add(shade_)
+    g.add(Circle(radius=r * 1.04).set_fill(opacity=0).set_stroke("#9fd8ff", 5, opacity=.55))
+    g.add(Circle(radius=r).set_fill(opacity=0).set_stroke("#10213a", 4))
+    return g
+
+
+@icon("earth")
+def _earth_real():
+    return globe_group(), None
+
+
+@icon("planet")
+def _planet_real():
+    body = S(Circle(radius=.75), "#d9a066", sw=4)
+    bands = VGroup(*[Line([-.72, y, 0], [.72, y, 0]).set_stroke(c, 7, opacity=.6) for y, c in ((.35, "#b8743d"), (.05, "#efc58a"), (-.3, "#a8642f"))])
+    from_ = Intersection(bands, Circle(radius=.74)).set_stroke("#b8743d", 6, opacity=.6) if False else bands
+    ring_b = Ellipse(width=2.7, height=.7).set_fill(opacity=0).set_stroke("#f2d9a0", 9).rotate(.25)
+    shade_ = Difference(Circle(radius=.75), Circle(radius=.75).shift([-.2, .2, 0])).set_fill("#3a1a05", .35).set_stroke(width=0)
+    return VGroup(body, from_, shade_, ring_b), None
+
+
+@icon("brain")
+def _brain_real():
+    skin = "#f2a6b8"
+    cer = S(Ellipse(width=2.3, height=1.55), skin, sw=4).move_to([0, .12, 0])
+    front = S(Ellipse(width=1.2, height=1.1), skin, sw=0).move_to([.75, -.05, 0])
+    temp = S(Ellipse(width=1.5, height=.65), "#ee94a9", sw=3).rotate(.12).move_to([.1, -.52, 0])
+    cb = S(Ellipse(width=.85, height=.55), "#d9798f", sw=3).move_to([-.82, -.72, 0])
+    stem = S(Polygon([-.2, -.7, 0], [.12, -.7, 0], [.08, -1.2, 0], [-.18, -1.2, 0]), "#e8889f", sw=3)
+    cbl = VGroup(*[Line([-1.2 + .03 * i, -.72 - .1 + .09 * i, 0], [-.45, -.72 - .08 + .09 * i, 0]).set_stroke("#b95a74", 2) for i in range(4)])
+    sulci = VGroup()
+    for h in (.78, .6, .42, .24, .06, -.12, -.28):
+        w = max(.2, 1.05 * np.sqrt(max(0.0, 1 - ((h - .12) / .74) ** 2)) - .12)
+        xs = np.linspace(-w, w, 60)
+        ys = h + .06 * np.sin(xs * 7.5 + h * 5) + .028 * np.sin(xs * 17 + h * 3)
+        sulci.add(pl(list(zip(xs, ys)), "#c25a77", 3))
+    sulci.set_opacity(.85)
+    cen = pl([(-.05, .8), (.05, .45), (-.1, .15), (0, -.1)], "#a8405e", 4)
+    lat = pl([(-.5, -.35), (-.1, -.28), (.3, -.1), (.7, .05)], "#a8405e", 4)
+    gl = Ellipse(width=1.1, height=.35).set_fill("#ffffff", .3).set_stroke(width=0).move_to([-.2, .62, 0]).rotate(.08)
+    return VGroup(stem, cb, cbl, cer, front, temp, sulci, cen, lat, gl), None
+
+
+@icon("heart")
+def _heart_real():
+    body = S(Polygon(*[[x, y, 0] for x, y in
+                       [(0, -1.1), (-.35, -.7), (-.75, -.2), (-.9, .25), (-.78, .62), (-.45, .8), (-.12, .62), (0, .42), (.12, .62), (.45, .8), (.78, .62), (.9, .25), (.75, -.2), (.35, -.7)]]), "#d62839", sw=4)
+    body.round_corners(.25) if hasattr(body, "round_corners") else None
+    aorta = Arc(radius=.38, start_angle=PI, angle=-PI * 1.2, arc_center=[-.05, .85, 0]).set_stroke("#b5172a", 26)
+    aorta2 = Line([-.43, .85, 0], [-.43, .55, 0]).set_stroke("#b5172a", 26)
+    vein = Line([.28, .7, 0], [.28, 1.15, 0]).set_stroke("#3a6ea5", 24)
+    vein2 = Line([.56, .65, 0], [.62, 1.1, 0]).set_stroke("#5a8ccd", 20)
+    septum = pl([(-.05, .5), (.05, -.2), (.0, -.85)], "#7a0f1c", 3)
+    gl = Ellipse(width=.45, height=.85).set_fill("#ffffff", .3).set_stroke(width=0).move_to([-.5, .15, 0]).rotate(.35)
+    return VGroup(aorta2, aorta, vein, vein2, body, septum, gl), None
+
+
+@icon("magnet")
+def _magnet_real():
+    ro, ri = .95, .45
+    red = AnnularSector(inner_radius=ri, outer_radius=ro, angle=PI / 2, start_angle=PI / 2).set_fill("#e63946", 1).set_stroke("#14161a", 4)
+    blue = AnnularSector(inner_radius=ri, outer_radius=ro, angle=PI / 2, start_angle=0).set_fill("#2d6cdf", 1).set_stroke("#14161a", 4)
+    xm = (ro + ri) / 2
+    legl = S(Rectangle(width=ro - ri, height=.9), "#e63946", sw=4).move_to([-xm, -.45, 0])
+    legr = S(Rectangle(width=ro - ri, height=.9), "#2d6cdf", sw=4).move_to([xm, -.45, 0])
+    tipl = S(Rectangle(width=ro - ri, height=.32), "#c9ced6", sw=4).move_to([-xm, -.78, 0])
+    tipr = S(Rectangle(width=ro - ri, height=.32), "#c9ced6", sw=4).move_to([xm, -.78, 0])
+    nlab = T("N", 34, WHITE, outline=False).move_to([-xm, -.2, 0])
+    slab = T("S", 34, WHITE, outline=False).move_to([xm, -.2, 0])
+    gl = Arc(radius=.82, start_angle=PI * .62, angle=PI * .28).set_stroke("#ffffff", 5, opacity=.5)
+    return VGroup(red, blue, legl, legr, tipl, tipr, nlab, slab, gl).move_to(ORIGIN), None
+
+
+@icon("snow")
+def _snow_real():
+    g = VGroup()
+    for k in range(6):
+        a = k * PI / 3
+        d = np.array([np.cos(a), np.sin(a), 0])
+        n = np.array([-np.sin(a), np.cos(a), 0])
+        g.add(Line(ORIGIN, d * 1.0).set_stroke("#e8f6ff", 7))
+        for f, L in ((.38, .32), (.65, .24)):
+            for sg in (-1, 1):
+                p0 = d * f
+                g.add(Line(p0, p0 + (d * .55 + n * sg * .6) * L / .6).set_stroke("#e8f6ff", 5))
+        g.add(Dot(d * 1.05, radius=.07, color="#ffffff"))
+    g.add(RegularPolygon(6).scale(.22).set_fill("#ffffff", .9).set_stroke("#bfe9ff", 3))
+    glow = Circle(radius=1.15).set_fill("#7fc8ff", .18).set_stroke("#9fd8ff", 3, opacity=.5)
+    return VGroup(glow, g), None
+
+
+
+# ---------------------------------------------------------------- realistic icon overrides, batch 2
+def _grad_rr(w, h, r, c1, c2, sw=4, stroke="#14161a"):
+    m = RoundedRectangle(corner_radius=r, width=w, height=h)
+    m.set_fill([c1, c2], 1).set_stroke(stroke, sw)
+    m.set_sheen_direction(DOWN)
+    return m
+
+
+@icon("phone")
+def _phone_real():
+    body = S(RoundedRectangle(corner_radius=.28, width=1.2, height=2.3), "#1b1e26", sw=4)
+    scr = RoundedRectangle(corner_radius=.18, width=1.02, height=2.1).set_fill(["#3a86ff", "#8338ec", "#ff006e"], 1).set_stroke(width=0)
+    scr.set_sheen_direction(DOWN)
+    cam = S(Circle(radius=.05), "#0b0c10", sw=0).move_to([0, .98, 0])
+    status = VGroup(*[Rectangle(width=.12 - .02 * i, height=.04).set_fill(WHITE, .85).set_stroke(width=0).move_to([.3 - .13 * i, .88, 0]) for i in range(3)])
+    apps = VGroup(*[RoundedRectangle(corner_radius=.05, width=.19, height=.19).set_fill(c, 1).set_stroke(width=0).move_to([-.3 + .2 * (k % 4), .35 - .26 * (k // 4), 0])
+                    for k, c in enumerate(["#ffd23f", "#34c759", "#ff3b30", "#4cc9f0", "#ffffff", "#ff9f1c", "#c77dff", "#ffd23f"])])
+    clk = T("12:30", 26, WHITE, outline=False).move_to([0, .66, 0]) if False else VGroup()
+    home = Line([-.2, -.95, 0], [.2, -.95, 0]).set_stroke(WHITE, 4, opacity=.8)
+    gl = Polygon([-.45, 1.0, 0], [-.1, 1.0, 0], [-.5, -.3, 0]).set_fill(WHITE, .12).set_stroke(width=0)
+    return VGroup(body, scr, status, apps, cam, home, gl), None
+
+
+@icon("bulb")
+def _bulb_real():
+    glass = S(Circle(radius=.72), "#ffe680", sw=4).move_to([0, .3, 0])
+    neck = S(Polygon([-.34, -.2, 0], [.34, -.2, 0], [.28, -.45, 0], [-.28, -.45, 0]), "#ffe680", sw=4)
+    glow = Circle(radius=1.1).move_to([0, .3, 0]).set_fill("#ffd23f", .2).set_stroke(width=0)
+    base = VGroup(*[S(RoundedRectangle(corner_radius=.05, width=.62 - .04 * i, height=.14), "#a7b0bb", sw=3).move_to([0, -.55 - .17 * i, 0]) for i in range(3)])
+    tip = S(Circle(radius=.1), "#555b66", sw=2).move_to([0, -1.05, 0])
+    fil = pl([(-.18, -.2), (-.16, .25), (-.08, .12), (0, .3), (.08, .12), (.16, .25), (.18, -.2)], "#c46a00", 4)
+    posts = VGroup(Line([-.18, -.2, 0], [-.18, -.42, 0]).set_stroke("#8a6a42", 3), Line([.18, -.2, 0], [.18, -.42, 0]).set_stroke("#8a6a42", 3))
+    gl = Arc(radius=.55, start_angle=PI * .6, angle=PI * .35, arc_center=[0, .3, 0]).set_stroke(WHITE, 6, opacity=.7)
+    return VGroup(glow, glass, neck, posts, fil, base, tip, gl), None
+
+
+@icon("plug")
+def _plug_real():
+    body = S(RoundedRectangle(corner_radius=.28, width=1.35, height=1.15), "#2b3a55", sw=4).move_to([0, -.15, 0])
+    ridge = VGroup(*[Line([-.5 + .25 * i, -.45, 0], [-.5 + .25 * i, .1, 0]).set_stroke("#1b2538", 4) for i in range(5)])
+    prongs = VGroup(S(RoundedRectangle(corner_radius=.04, width=.2, height=.7), "#d5dae1", sw=3).move_to([-.32, .7, 0]),
+                    S(RoundedRectangle(corner_radius=.04, width=.2, height=.7), "#d5dae1", sw=3).move_to([.32, .7, 0]))
+    cable = pl([(0, -.75), (0, -1.1), (.15, -1.35), (.55, -1.45), (.9, -1.3)], "#1b2538", 12)
+    cable2 = pl([(0, -.75), (0, -1.1), (.15, -1.35), (.55, -1.45), (.9, -1.3)], "#4a5d85", 4)
+    gl = Line([-.55, .25, 0], [-.55, -.45, 0]).set_stroke(WHITE, 5, opacity=.35)
+    return VGroup(prongs, cable, cable2, body, ridge, gl), None
+
+
+@icon("cloud")
+def _cloud_real():
+    spec = [(-.6, -.05, .42), (-.2, .25, .55), (.38, .2, .5), (.72, -.08, .38), (.05, -.12, .5)]
+    back = VGroup(*[S(Circle(radius=r), "#cfd8e3", sw=0).move_to([x, y - .06, 0]) for x, y, r in spec])
+    base = S(RoundedRectangle(corner_radius=.3, width=1.9, height=.6), "#cfd8e3", sw=0).move_to([.05, -.3, 0])
+    front = VGroup(*[S(Circle(radius=r), "#ffffff", sw=0).move_to([x, y, 0]) for x, y, r in spec])
+    base2 = S(RoundedRectangle(corner_radius=.28, width=1.8, height=.5), "#ffffff", sw=0).move_to([.05, -.27, 0])
+    ol = Union(*[Circle(radius=r).move_to([x, y, 0]) for x, y, r in spec], RoundedRectangle(corner_radius=.28, width=1.8, height=.5).move_to([.05, -.27, 0])).set_fill(opacity=0).set_stroke("#8fa3b8", 3)
+    sh = Ellipse(width=1.5, height=.22).set_fill("#9db4cc", .5).set_stroke(width=0).move_to([.05, -.5, 0])
+    return VGroup(base, back, front, base2, sh, ol).move_to(ORIGIN), None
+
+
+@icon("virus")
+def _virus_real():
+    spikes = VGroup()
+    for a in np.linspace(0, TAU, 14, endpoint=False):
+        d = np.array([np.cos(a), np.sin(a), 0])
+        spikes.add(Line(d * .7, d * 1.05).set_stroke("#8a2d2d", 5))
+        spikes.add(Dot(d * 1.1, radius=.13, color="#e63946").set_stroke("#8a2d2d", 2))
+    body = S(Circle(radius=.75), "#a8c66c", sw=4)
+    tex = VGroup(*[Dot([.5 * np.cos(a) * r, .5 * np.sin(a) * r, 0], radius=.05, color="#7a9a3a") for a, r in ((.3, .9), (1.3, .5), (2.4, .85), (3.5, .6), (4.4, .9), (5.4, .5), (0, 0))])
+    gl = Arc(radius=.6, start_angle=PI * .6, angle=PI * .35).set_stroke(WHITE, 6, opacity=.5)
+    return VGroup(spikes, body, tex, gl), None
+
+
+@icon("dna")
+def _dna_real():
+    ys = np.linspace(-1.2, 1.2, 80)
+    k = 3.0
+    g = VGroup()
+    cols = ["#ffd23f", "#34c759", "#4cc9f0", "#ff3b6b"]
+    for i, y in enumerate(np.linspace(-1.05, 1.05, 12)):
+        x = .5 * np.sin(y * k)
+        g.add(Line([x, y, 0], [-x, y, 0]).set_stroke(cols[i % 4], 6, opacity=.95))
+        g.add(Dot([x, y, 0], radius=.07, color=cols[i % 4]), Dot([-x, y, 0], radius=.07, color=cols[(i + 2) % 4]))
+    # strands: draw back/front segments with different widths for a 3D feel
+    for sg, col in ((1, "#4cc9f0"), (-1, "#f72585")):
+        for j in range(len(ys) - 1):
+            y0, y1 = ys[j], ys[j + 1]
+            x0, x1 = sg * .5 * np.sin(y0 * k), sg * .5 * np.sin(y1 * k)
+            front = np.cos(y0 * k) * sg > 0
+            g.add(Line([x0, y0, 0], [x1, y1, 0]).set_stroke(col, 11 if front else 6, opacity=1 if front else .55))
+    return g, None
+
+
+@icon("lock")
+def _lock_real():
+    sh_out = Arc(radius=.52, start_angle=0, angle=PI, arc_center=[0, .35, 0]).set_stroke("#14161a", 20)
+    sh = Arc(radius=.52, start_angle=0, angle=PI, arc_center=[0, .35, 0]).set_stroke("#c4cbd4", 14)
+    legs = VGroup(Line([-.52, .35, 0], [-.52, -.05, 0]).set_stroke("#14161a", 20), Line([.52, .35, 0], [.52, -.05, 0]).set_stroke("#14161a", 20),
+                  Line([-.52, .35, 0], [-.52, -.05, 0]).set_stroke("#c4cbd4", 14), Line([.52, .35, 0], [.52, -.05, 0]).set_stroke("#c4cbd4", 14))
+    body = _grad_rr(1.5, 1.15, .18, "#ffe27a", "#e0a41a")
+    body.move_to([0, -.3, 0])
+    kh = VGroup(Circle(radius=.13).set_fill("#2b2118", 1).set_stroke(width=0).move_to([0, -.22, 0]),
+                Polygon([-.06, -.25, 0], [.06, -.25, 0], [.09, -.62, 0], [-.09, -.62, 0]).set_fill("#2b2118", 1).set_stroke(width=0))
+    gl = Line([-.6, -.02, 0], [-.6, -.6, 0]).set_stroke(WHITE, 5, opacity=.45)
+    return VGroup(sh_out, legs, sh, body, kh, gl).move_to(ORIGIN), None
+
+
+@icon("sun")
+def _sun_real():
+    glow = VGroup(*[Circle(radius=r).set_fill("#ff9f1c", o).set_stroke(width=0) for r, o in ((1.5, .10), (1.25, .16))])
+    rays = VGroup()
+    for a in np.linspace(0, TAU, 16, endpoint=False):
+        d = np.array([np.cos(a), np.sin(a), 0]); n = np.array([-np.sin(a), np.cos(a), 0])
+        L = 1.4 if int(round(a / (TAU / 16))) % 2 == 0 else 1.2
+        rays.add(Polygon(d * .88 + n * .09, d * L, d * .88 - n * .09).set_fill("#ff9f1c", 1).set_stroke(width=0))
+    disk = Circle(radius=.85).set_fill(["#fff3a8", "#ffd23f", "#ff9f1c"], 1).set_stroke("#e07b00", 4)
+    disk.set_sheen_direction(DOWN + RIGHT)
+    gran = VGroup(*[Dot([.5 * np.cos(a) * r, .5 * np.sin(a) * r, 0], radius=.06, color="#e8a81a") for a, r in ((.4, 1), (1.5, .7), (2.6, 1.1), (3.8, .8), (5, 1))]).set_opacity(.6)
+    return VGroup(glow, rays, disk, gran), None
+
+
+@icon("moon")
+def _moon_real():
+    try:
+        m = Difference(Circle(radius=.95), Circle(radius=.8).shift([.5, .22, 0]))
+        m.set_fill(["#fff6d8", "#e3d9a6"], 1).set_stroke("#7a6f45", 3)
+    except Exception:
+        m = S(Circle(radius=.95), "#f7f1c4", sw=3)
+    cr = VGroup(*[Circle(radius=r).set_fill("#c9bf8a", .8).set_stroke("#a59b6a", 2).move_to([x, y, 0]) for x, y, r in ((-.62, .15, .11), (-.45, -.35, .15), (-.15, .62, .09), (-.72, -.02, .06))])
+    glow = Circle(radius=1.25).set_fill("#9fb4ff", .12).set_stroke(width=0)
+    return VGroup(glow, m, cr), None
+
+
+_orig_thermo = ICONS["thermometer"]
+
+
+@icon("thermometer")
+def _thermo_real():
+    g, sp = _orig_thermo()
+    hl = Line([-.1, .9, 0], [-.1, -.6, 0]).set_stroke(WHITE, 5, opacity=.55)
+    g.add(hl)
+    return g, sp
+
+
+_orig_battery = ICONS["battery"]
+
+
+@icon("battery")
+def _battery_real():
+    g, sp = _orig_battery()
+    plus = T("+", 40, WHITE, outline=False).move_to([0, .78, 0]) if False else VGroup()
+    g.add(Line([-.35, -.78, 0], [.35, -.78, 0]).set_stroke(WHITE, 5, opacity=.8))
+    return g, sp
+
+
 def make_icon(name):
     fn = ICONS.get(name) or ICONS["question"]
     g, sp = fn()
@@ -592,16 +891,19 @@ class Char:
 
     def __init__(self, kind):
         fem = kind == "you"
+        host = kind in ("host", "guide")
+        hero = kind == "hero" or host
         self.fem = fem
-        skin = "#f6c9a4" if fem else "#f0b98d"
+        self.host = host
+        skin = "#f6c9a4" if fem else ("#e9b894" if host else "#f0b98d")
         skin_d = shade(skin, .12)
-        top = "#27b3a6" if fem else "#ffffff"
+        top = "#27b3a6" if fem else ("#a9cfd8" if host else ("#3b6fd9" if hero else "#ffffff"))
         top_d = shade(top, .14)
-        hair_c = "#7a3b1d" if fem else "#e9e9ef"
+        hair_c = "#7a3b1d" if fem else ("#1f1a17" if host else ("#2b2118" if hero else "#e9e9ef"))
         hair_d = shade(hair_c, .18)
-        pants = "#6c4fa3" if fem else "#31415e"
-        shoe = "#ffffff" if fem else "#5b3a24"
-        iris = "#2f9e8f" if fem else "#4a6fa5"
+        pants = "#6c4fa3" if fem else ("#2b3345" if host else ("#2c3a55" if hero else "#31415e"))
+        shoe = "#ffffff" if (fem or (hero and not host)) else "#5b3a24"
+        iris = "#2f9e8f" if fem else ("#5a6b4a" if host else ("#6b4a2b" if hero else "#4a6fa5"))
 
         def limb(px, py, w, h, col, foot=None):
             pv = Dot([px, py, 0], radius=.01).set_opacity(0)
@@ -613,8 +915,13 @@ class Char:
             return VGroup(*parts)
 
         self.shadow = Ellipse(width=2.1, height=.32).set_fill(BLACK, .22).set_stroke(width=0).move_to([0, -1.76, 0])
-        self.leg_l = limb(-.3, -1.0, .36, .78, pants, shoe)
-        self.leg_r = limb(.3, -1.0, .36, .78, pants, shoe)
+        if host or fem:
+            legc = skin if fem else pants   # Why: bare legs under a mini skirt
+            self.leg_l = limb(-.24, -.14, .3, 1.65, legc, shoe)
+            self.leg_r = limb(.24, -.14, .3, 1.65, legc, shoe)
+        else:
+            self.leg_l = limb(-.3, -1.0, .36, .78, pants, shoe)
+            self.leg_r = limb(.3, -1.0, .36, .78, pants, shoe)
 
         # hair behind head
         if fem:
@@ -623,6 +930,10 @@ class Char:
                 S(Circle(radius=.42), hair_c).move_to([-.98, 1.45, 0]),       # bun left
                 S(Circle(radius=.42), hair_c).move_to([.98, 1.45, 0]),        # bun right
             )
+        elif hero:
+            self.hair_back = VGroup(S(Ellipse(width=1.9, height=1.25), hair_c).move_to([0, 1.25, 0]))
+            if host:
+                self.hair_back = VGroup(S(Circle(radius=.05), hair_c, sw=0).move_to([0, 1.0, 0]).set_opacity(0))
         else:
             self.hair_back = VGroup(*[S(Circle(radius=r), hair_c).move_to([x, y, 0]) for x, y, r in
                                       [(-.8, 1.1, .38), (-.55, 1.62, .42), (-.1, 1.88, .44), (.42, 1.78, .42), (.8, 1.25, .38), (.9, .7, .28), (-.92, .65, .26)]])
@@ -633,6 +944,15 @@ class Char:
             self.skirt = S(Polygon([-.62, -.72, 0], [.62, -.72, 0], [.95, -1.3, 0], [-.95, -1.3, 0]), pants)
             self.body.add(S(Rectangle(width=.5, height=.12), "#ffd23f", sw=0).move_to([0, .1, 0]))      # collar band
             self.body.add(S(Circle(radius=.09), "#ffd23f", sw=1).move_to([0, -.25, 0]))
+        elif hero:
+            self.skirt = VGroup()
+            if host:   # plain crew-neck sweater, no hood
+                self.body.add(S(Ellipse(width=.82, height=.2), shade(top, .22), sw=2).move_to([0, .3, 0]))
+                self.body.add(S(Rectangle(width=1.1, height=.1), shade(top, .12), sw=0).move_to([0, -.95, 0]))
+            else:
+                self.body.add(S(RoundedRectangle(corner_radius=.18, width=.8, height=.42), shade(top, .16), sw=2).move_to([0, -.72, 0]))  # hoodie pocket
+                self.body.add(Line([-.18, .28, 0], [-.18, -.12, 0]).set_stroke("#ffffff", 4), Line([.18, .28, 0], [.18, -.12, 0]).set_stroke("#ffffff", 4))  # drawstrings
+                self.body.add(S(Polygon([-.42, .34, 0], [.42, .34, 0], [0, -.05, 0]), shade(top, .22), sw=2))  # hood opening
         else:
             self.skirt = VGroup()
             self.body.add(S(Polygon([-.3, .3, 0], [.3, .3, 0], [0, -.15, 0]), "#2b4a8a", sw=2))     # shirt
@@ -671,6 +991,16 @@ class Char:
                             S(Triangle().scale(.2).rotate(-PI / 2), "#ff4d6d").move_to([-.56, 1.7, 0]),
                             S(Circle(radius=.07), "#ff4d6d").move_to([-.72, 1.7, 0]))
             self.hair_front = VGroup(fringe, ribbon)
+        elif host:
+            cap = Difference(Circle(radius=.97).move_to([0, .99, 0]), Circle(radius=.95).move_to([-.05, .62, 0]))
+            quiff = Ellipse(width=1.3, height=.6).rotate(-.15).move_to([.1, 1.68, 0])
+            hair = Union(cap, quiff)
+            hair.set_fill(hair_c, 1).set_stroke("#0f0c0a", 3)
+            self.hair_front = VGroup(hair)
+        elif hero:
+            self.hair_front = VGroup(S(Ellipse(width=1.75, height=.62), hair_c).move_to([0, 1.62, 0]),
+                                     S(Ellipse(width=.9, height=.4), hair_c).move_to([-.35, 1.48, 0]).rotate(.18),
+                                     S(Triangle().scale(.18).rotate(.3), hair_c).move_to([.55, 1.45, 0]))
         else:
             self.hair_front = VGroup(S(Ellipse(width=1.3, height=.36), hair_c).move_to([0, 1.78, 0]),
                                      S(Triangle().scale(.2).move_to([-.3, 1.92, 0]), hair_c), S(Triangle().scale(.22).move_to([.25, 1.95, 0]).rotate(.2), hair_c))
@@ -682,9 +1012,10 @@ class Char:
         self.glints = VGroup(*[S(Circle(radius=.05), WHITE, sw=0).move_to([sx * ex + .06, 1.06, 0]) for sx in (-1, 1)])
         self.happy_eyes = VGroup(*[Arc(radius=.2, start_angle=.35, angle=PI - .7).set_stroke(INK, 7).move_to([sx * ex, 1.0, 0]) for sx in (-1, 1)])
         self.eyes = VGroup(self.eyes_w, self.irises, self.pupils, self.glints)
-        brow_c = hair_d if fem else "#7d8392"
-        by = 1.43 if fem else 1.5
-        self.brows = VGroup(Line([-.58, by - .05, 0], [-.12, by, 0]).set_stroke(brow_c, 8), Line([.12, by, 0], [.58, by - .05, 0]).set_stroke(brow_c, 8))
+        brow_c = hair_d if (fem or hero) else "#7d8392"
+        by = 1.43 if fem else (1.36 if host else 1.5)
+        bw_ = 11 if host else 8
+        self.brows = VGroup(Line([-.58, by - .05, 0], [-.12, by, 0]).set_stroke(brow_c, bw_), Line([.12, by, 0], [.58, by - .05, 0]).set_stroke(brow_c, bw_))
         self.lashes = VGroup(*[Line([sx * ex + sx * .2, 1.08, 0], [sx * ex + sx * .32, 1.2, 0]).set_stroke(INK, 4) for sx in (-1, 1)]) if fem else VGroup()
         self.cheeks = VGroup(*[Circle(radius=.15).set_fill("#ff7a8a", .45).set_stroke(width=0).move_to([sx * .6, .6, 0]) for sx in (-1, 1)])
         self.nose = S(Ellipse(width=.16, height=.12), shade(skin, .1), sw=1.5).move_to([0, .78, 0])
@@ -695,9 +1026,10 @@ class Char:
         self.frown = Arc(radius=.25, start_angle=.5, angle=PI - 1.0).set_stroke("#6b2d2d", 5).move_to([0, .42, 0])
         self.mouth = S(Ellipse(width=.3, height=.3), "#8e2f3a", stroke="#5a1d25", sw=2).move_to([0, .46, 0])
         self.tongue = S(Ellipse(width=.2, height=.12), "#ff8fa3", sw=0).move_to([0, .4, 0])
+        self.flat = Line([-.2, .46, 0], [.2, .46, 0]).set_stroke("#6b2d2d", 3.5)
         # accessories
         acc = []
-        if not fem:
+        if not fem and not hero:
             acc.append(VGroup(*[Circle(radius=.27).set_fill(opacity=0).set_stroke("#2b2f3a", 5).move_to([sx * ex, 1.0, 0]) for sx in (-1, 1)],
                               Line([-.06, 1.02, 0], [.06, 1.02, 0]).set_stroke("#2b2f3a", 5)))
             acc.append(VGroup(S(Ellipse(width=.5, height=.17), "#f4f4f8", sw=2).move_to([-.14, .68, 0]), S(Ellipse(width=.5, height=.17), "#f4f4f8", sw=2).move_to([.14, .68, 0])))  # mustache
@@ -705,13 +1037,30 @@ class Char:
         self.sweat = VGroup(S(Triangle().scale(.1).stretch(1.4, 1).move_to([0, .1, 0]), "#7fd1ff", sw=1.5), S(Circle(radius=.1), "#7fd1ff", sw=1.5).move_to([0, -.04, 0])).move_to([.95, 1.5, 0])
         self.burst = VGroup(*[Line([.0, .15, 0], [.0, .5, 0]).set_stroke(YEL, 7).rotate(a, about_point=[0, 0, 0]) for a in (-.7, 0, .7)]).move_to([1.1, 1.95, 0])
 
-        self.face = VGroup(self.nose, self.cheeks, self.eyes, self.happy_eyes, self.lashes, self.brows, self.smile, self.frown, self.mouth, self.tongue, self.acc)
-        self.headg = VGroup(self.head, self.face, self.hair_front, self.sweat, self.burst)
+        self.face = VGroup(self.nose, self.cheeks, self.eyes, self.happy_eyes, self.lashes, self.brows, self.smile, self.frown, self.flat, self.mouth, self.tongue, self.acc)
+        if host:
+            hc = shade(top, .08)
+            outer = Union(Ellipse(width=2.05, height=2.2).move_to([0, 1.12, 0]),
+                          Ellipse(width=.8, height=.55).move_to([-.74, .3, 0]),
+                          Ellipse(width=.8, height=.55).move_to([.74, .3, 0]))
+            outer.set_fill(shade(top, .25), 1).set_stroke("#1d2a35", 3)
+            self.hood_back = outer
+            opening = Union(Ellipse(width=1.5, height=1.45).move_to([0, .93, 0]),
+                            Rectangle(width=1.0, height=1.2).move_to([0, .2, 0]))
+            ring = Difference(outer.copy(), opening)
+            ring.set_fill(hc, 1).set_stroke("#1d2a35", 3)
+            fold = Difference(Union(Ellipse(width=1.64, height=1.58).move_to([0, .93, 0]), Rectangle(width=1.14, height=1.2).move_to([0, .2, 0])), opening)
+            fold.set_fill(shade(top, .32), .7).set_stroke(width=0)
+            self.hood_front = VGroup(ring, fold)
+            self.hood_back.set_opacity(0); self.hood_front.set_opacity(0)
+            self.headg = VGroup(self.hood_back, self.head, self.face, self.hair_front, self.hood_front, self.sweat, self.burst)
+        else:
+            self.headg = VGroup(self.head, self.face, self.hair_front, self.sweat, self.burst)
         self.g = VGroup(self.shadow, self.hair_back, self.leg_l, self.leg_r, self.skirt, self.body, self.arm_l, self.arm_r, self.headg)
         self.g.save_state()
 
     def pose(self, t, x, ground, scale=1.15, speaking=False, amp=0.0, point=0, emote=None, ep=0.0,
-             walking=False, calm=False, wave_hand=False, look=0.0, shape=.5):
+             walking=False, calm=False, wave_hand=False, look=0.0, shape=.5, face_only=False, hood=False):
         g = self.g
         g.restore()
         jump, squash = 0.0, 0.0
@@ -722,6 +1071,7 @@ class Char:
             bob = .09 * abs(np.sin(8 * t))
         else:
             bob = .035 * np.sin(2.2 * t + (0 if not self.fem else 1.3))
+        ae = None if face_only else emote
         for arm, s in ((self.arm_l, -1), (self.arm_r, 1)):
             ang = 0.0
             if walking:
@@ -734,14 +1084,16 @@ class Char:
                 ang = s * (.12 + .75 * amp) * (.55 + .45 * np.sin(3.6 * t + (1 if s > 0 else 0)))
             else:
                 ang = s * (.08 + .05 * np.sin(2.0 * t + s))
-            if emote == "shock":
+            if ae == "shock":
                 ang = s * (.5 + 1.9 * ep)
-            elif emote == "happy":
+            elif ae == "happy":
                 ang = s * (.4 + 1.9 * ep * (.55 + .45 * np.sin(11 * t)))
-            elif emote == "think" and s == 1:
+            elif ae == "think" and s == 1:
                 ang = s * (2.2 * ep + .1)
-            elif emote == "worried":
+            elif ae == "worried":
                 ang = s * (.3 + .9 * ep)
+            elif ae == "fear":
+                ang = s * (.25 + .8 * ep)
             arm.rotate(ang, about_point=arm[0].get_center())
         # ---- face
         openness = .04 + (.62 * amp if speaking else 0)
@@ -757,11 +1109,23 @@ class Char:
             jump = .15 * abs(np.sin(9 * t)) * ep
         elif emote == "worried":
             show, brow_tilt, brow_up = ("open" if openness > .12 else "frown"), .3 * ep, .1 * ep
+        elif emote == "fear":
+            show, eye_h, pupil_k, brow_up, brow_tilt = ("open" if openness > .12 else "frown"), 1 + .22 * ep, 1 - .4 * ep, .16 * ep, .35 * ep
+        elif emote == "sad":
+            show, eye_h, brow_tilt, brow_up = ("open" if openness > .12 else "frown"), 1 - .15 * ep, .3 * ep, .04 * ep
+        elif emote == "angry":
+            show, eye_h, brow_tilt, brow_up = ("open" if openness > .12 else "frown"), 1 - .22 * ep, -.35 * ep, -.06 * ep
+        elif emote == "neutral":
+            show = "flat" if ep > .3 else "smile"
         elif emote == "think":
             brow_up = .1 * ep
-        if show == "smile" and speaking and openness > .12:
+            show = "flat" if ep > .3 else "smile"
+        if face_only:
+            jump, squash = 0.0, 0.0
+        if show in ("smile", "flat") and speaking and openness > .12:
             show = "open"
         self.smile.set_opacity(1 if show == "smile" else 0)
+        self.flat.set_opacity(1 if show == "flat" else 0)
         self.frown.set_opacity(1 if show == "frown" else 0)
         op = 1 if show == "open" else 0
         self.mouth.set_fill(opacity=op).set_stroke(opacity=op)
@@ -791,6 +1155,8 @@ class Char:
             self.brows[1].shift(UP * .1 * ep)
         if emote == "shock":
             self.sweat.set_opacity(ep); self.burst.set_opacity(ep)
+        elif emote == "fear":
+            self.sweat.set_opacity(ep); self.burst.set_opacity(0)
         else:
             self.sweat.set_opacity(0); self.burst.set_opacity(0)
         bt = (t + (1.1 if self.fem else 0)) % 3.1
@@ -805,7 +1171,24 @@ class Char:
             self.headg.rotate(-.035 * amp * np.sin(5.5 * t), about_point=[0, .3, 0])
         self.body.scale(1 + .014 * np.sin(2.6 * t), about_point=[0, -1.0, 0])
         self.hair_back.rotate(.025 * np.sin(2.5 * t + 1), about_point=[0, 1.6, 0])
-        sc = scale * (1 + (.035 * amp if speaking else 0) + squash)
+        if self.host and hood:
+            self.hood_back.set_opacity(1); self.hood_front.set_opacity(1)
+            self.hair_front.set_opacity(0); self.hair_back.set_opacity(0)
+        if self.host or self.fem:
+            for part in (self.headg, self.hair_back):
+                part.scale(.62, about_point=[0, .05, 0])
+            self.body.stretch(.84, 0)
+            self.body.stretch(1.19, 1, about_point=[0, -1.025, 0])
+            for arm in (self.arm_l, self.arm_r):
+                arm.scale(1.3, about_point=arm[0].get_center())
+                arm[2].scale(.72)
+            for part, dy in ((self.body, .83), (self.arm_l, 1.08), (self.arm_r, 1.08), (self.headg, 1.4), (self.hair_back, 1.4)):
+                part.shift(UP * dy)
+            self.arm_l.shift(RIGHT * .1); self.arm_r.shift(LEFT * .1)
+            if self.fem:
+                self.skirt.stretch(.88, 0)
+                self.skirt.shift(UP * .83)
+        sc = scale * (.93 if self.fem else 1.0) * (1 + (.035 * amp if speaking else 0) + squash)
         g.scale(sc, about_point=[0, -1.75, 0])
         g.shift([x, ground + 1.75 + bob + jump, 0])
 
@@ -910,6 +1293,91 @@ def backdrop(name):
         amb.append(("siren", sir, 0))
         g.add(box(FW, 1.6, "#1a0508", y=-3.2))
         g.add(box(FW, .35, "#ffd23f", y=-2.5), *[box(.5, .35, BLACK, x, -2.5) for x in np.arange(-7, 7.5, 1.0)])
+    elif name == "hospital":
+        g.add(box(FW, FH, "#e3f1ef"), box(FW, 1.6, "#b9c7c9", y=-3.2), box(FW, .14, "#9fb4b6", y=-2.45))
+        g.add(box(2.2, 1.7, "#cfe9f5", -5.4, 1.6, sc="#7a9aa8", sw=4), box(.08, 1.7, "#7a9aa8", -5.4, 1.6))
+        g.add(box(.9, .9, WHITE, 0, 2.7, sc="#cfd8dc", sw=2), box(.5, .16, RED, 0, 2.7, sw=0), box(.16, .5, RED, 0, 2.7, sw=0))
+        g.add(box(2.6, .5, "#f5f7f8", 4.6, -1.35, sc="#8fa1a6", sw=3), box(2.8, .25, "#8fb7d6", 4.6, -1.75), box(.12, 1.0, "#8fa1a6", 3.5, -1.0))
+        mon = box(1.6, 1.1, "#101820", 5.1, 1.2, sc="#8fa1a6", sw=4)
+        g.add(mon, Polygon([4.4, 1.2, 0], [4.8, 1.2, 0], [4.9, 1.6, 0], [5.1, .8, 0], [5.3, 1.3, 0], [5.8, 1.3, 0]).set_fill(opacity=0).set_stroke("#34c759", 3))
+        for _ in range(10):
+            amb.append(("dust", dot(rnd.uniform(.02, .04), WHITE, rnd.uniform(-6, 6), rnd.uniform(-2, 3), op=.5), rnd.uniform(0, 20)))
+    elif name == "kitchen":
+        g.add(box(FW, FH, "#f1e3c8"), box(FW, 2.6, "#e9f0f2", y=.5))
+        for tx in np.arange(-7, 7.2, .8):
+            g.add(Line([tx, -.8, 0], [tx, 1.8, 0]).set_stroke("#cfd8dc", 2))
+        for ty in (-.8, -.0, .8, 1.6):
+            g.add(Line([-7.2, ty, 0], [7.2, ty, 0]).set_stroke("#cfd8dc", 2))
+        g.add(box(FW, 1.3, "#8b5e3c", y=-2.15), box(FW, .18, "#d9c3a0", y=-1.45), box(FW, 1.2, "#6e4b32", y=-3.4))
+        g.add(box(2.4, 1.6, "#cfe9f5", -5.0, 2.8, sc="#8b5e3c", sw=5), box(2.4, .9, "#fff2d0", 4.8, 2.8, sc="#8b5e3c", sw=4))
+        g.add(box(.12, .5, "#555555", 1.0, 3.5), dot(.5, "#b0b7bd", 1.0, 2.9, sc="#555555", sw=3), box(.12, .5, "#555555", 2.2, 3.5), dot(.4, "#d98a3d", 2.2, 3.0, sc="#555555", sw=3))
+        g.add(dot(.45, "#c8c1b5", -1.6, -1.0, sc="#7a7367", sw=3), box(.9, .5, "#c8c1b5", -1.6, -1.35))
+        for i in range(5):
+            amb.append(("dust", dot(rnd.uniform(.03, .06), WHITE, rnd.uniform(-3, 3), rnd.uniform(-1, 1), op=.4), rnd.uniform(0, 20)))
+    elif name == "classroom":
+        g.add(box(FW, FH, "#e8dcc2"), box(FW, 1.6, "#a88458", y=-3.2), box(FW, .5, "#8a6a42", y=-2.4))
+        g.add(box(6.2, 3.0, "#2f5d4a", 0, 1.35, sc="#8a6a42", sw=8), box(6.0, .12, "#6e4b32", 0, -.3))
+        g.add(Line([-2.5, 2.2, 0], [-.8, 2.2, 0]).set_stroke("#ffffff", 4, opacity=.8), Line([-2.5, 1.6, 0], [-1.4, 1.6, 0]).set_stroke("#ffffff", 4, opacity=.6), dot(.3, WHITE, 1.2, 1.9, op=.7))
+        g.add(dot(.5, "#f4f1e8", 5.2, 3.0, sc="#2f2a26", sw=4), Line([5.2, 3.0, 0], [5.2, 3.3, 0]).set_stroke("#2f2a26", 3), Line([5.2, 3.0, 0], [5.45, 2.9, 0]).set_stroke("#2f2a26", 3))
+        for dx in (-5.2, -1.7, 1.8, 5.3):
+            g.add(box(1.7, .18, "#8b5e3c", dx, -1.55), box(.12, .9, "#6e4b32", dx - .7, -2.05), box(.12, .9, "#6e4b32", dx + .7, -2.05))
+    elif name == "desert":
+        g.add(box(FW, FH, "#f6c78a"), box(FW, 3.2, "#f9dcae", y=1.4, op=.7), dot(1.0, "#fff1c9", 4.8, 2.6))
+        g.add(Polygon([-8, -1.4, 0], [-4.5, .3, 0], [-1.5, -.8, 0], [2, -.2, 0], [8, -1.6, 0], [8, -4, 0], [-8, -4, 0]).set_fill("#e0a35a", 1).set_stroke(width=0))
+        g.add(Polygon([-8, -2.4, 0], [-3, -1.6, 0], [3, -2.5, 0], [8, -2.0, 0], [8, -4, 0], [-8, -4, 0]).set_fill("#d38f45", 1).set_stroke(width=0))
+        g.add(box(.35, 1.6, "#4f8a4a", -5.5, -1.6, sc="#2f5a2c", sw=3), box(.5, .22, "#4f8a4a", -5.15, -1.3, sc="#2f5a2c", sw=2), box(.5, .22, "#4f8a4a", -5.85, -1.0, sc="#2f5a2c", sw=2))
+        for i in range(3):
+            amb.append(("cloud", VGroup(dot(.3, "#fff4d8", 0, 0), dot(.4, "#fff4d8", .4, .08), dot(.3, "#fff4d8", .8, 0)).move_to([-5 + i * 5, 3.2 - i * .3, 0]), i + 1))
+    elif name == "mountain":
+        g.add(box(FW, FH, "#a9d3ee"), box(FW, 3.0, "#d4e9f7", y=1.6, op=.7))
+        g.add(Polygon([-8, -3, 0], [-4.8, 2.6, 0], [-1.6, -3, 0]).set_fill("#6f86a3", 1).set_stroke(width=0), Polygon([-5.4, 1.5, 0], [-4.8, 2.6, 0], [-4.2, 1.5, 0], [-4.8, 1.8, 0]).set_fill(WHITE, 1).set_stroke(width=0))
+        g.add(Polygon([-3, -3, 0], [1.2, 3.1, 0], [5.6, -3, 0]).set_fill("#5b7391", 1).set_stroke(width=0), Polygon([.4, 1.7, 0], [1.2, 3.1, 0], [2.0, 1.7, 0], [1.2, 2.1, 0]).set_fill(WHITE, 1).set_stroke(width=0))
+        g.add(Polygon([3, -3, 0], [6.4, 1.8, 0], [9, -3, 0]).set_fill("#7d93ad", 1).set_stroke(width=0), box(FW, 1.5, "#e9f2f7", y=-3.25))
+        for px in (-6.2, -5.6, 5.9, 6.5):
+            g.add(Polygon([px - .3, -2.5, 0], [px, -1.2, 0], [px + .3, -2.5, 0]).set_fill("#2f6b4a", 1).set_stroke(width=0))
+        for i in range(3):
+            amb.append(("cloud", VGroup(dot(.35, WHITE, 0, 0), dot(.5, WHITE, .45, .1), dot(.35, WHITE, .9, 0)).move_to([-5 + i * 5, 3.0 - i * .3, 0]), i))
+    elif name == "cave":
+        g.add(box(FW, FH, "#1d1a24"), box(FW, 1.8, "#2b2631", y=-3.1))
+        for sx in (-6.2, -4.1, -1.8, .6, 2.9, 5.0, 6.6):
+            g.add(Polygon([sx - .4, 4, 0], [sx + .4, 4, 0], [sx + rnd.uniform(-.1, .1), 4 - rnd.uniform(1.0, 2.0), 0]).set_fill("#3a3445", 1).set_stroke(width=0))
+        for sx in (-5.0, 3.6):
+            g.add(Polygon([sx - .3, -2.3, 0], [sx + .3, -2.3, 0], [sx, -1.2, 0]).set_fill("#3a3445", 1).set_stroke(width=0))
+        for cx_, cy_, col in ((-6.0, -2.0, "#4cc9f0"), (5.9, -2.1, "#c77dff"), (-2.0, -2.45, "#4cc9f0")):
+            g.add(Polygon([cx_ - .18, -2.5, 0], [cx_, cy_ + .9, 0], [cx_ + .18, -2.5, 0]).set_fill(col, .9).set_stroke(WHITE, 2))
+            amb.append(("firefly", dot(.5, col, cx_, cy_ - .2, op=.2), rnd.uniform(0, 6)))
+    elif name == "sky":
+        g.add(box(FW, FH, "#6bb7ee"), box(FW, 4.0, "#bfe3fa", y=-2.0, op=.8), dot(.9, "#fff6c9", -5.2, 2.7))
+        for i in range(5):
+            amb.append(("cloud", VGroup(dot(.45, WHITE, 0, 0), dot(.65, WHITE, .55, .12), dot(.45, WHITE, 1.1, 0)).move_to([-7 + i * 3.6, 2.6 - (i % 3) * 1.4, 0]), i + .5))
+        g.add(box(FW, 1.0, "#e9f5fc", y=-3.5))
+    elif name == "factory":
+        g.add(box(FW, FH, "#9aa5b1"), box(FW, 1.6, "#5c6670", y=-3.2), box(FW, .2, "#f2b63d", y=-2.4))
+        g.add(box(.8, 3.4, "#6f7a86", 5.9, 1.2), box(1.0, .25, "#4e5863", 5.9, 2.95))
+        g.add(box(FW, .35, "#6f7a86", 0, 2.9), box(FW, .22, "#8b97a3", 0, 2.2))
+        for gx, gr in ((-5.2, .9), (-3.9, .6)):
+            g.add(Star(n=10, outer_radius=gr, inner_radius=gr * .78).set_fill("#c7ced6", 1).set_stroke("#6f7a86", 3).move_to([gx, 1.2, 0]), dot(gr * .25, "#6f7a86", gx, 1.2))
+        g.add(box(8.5, .3, "#434b54", 0, -1.9), box(8.5, .12, "#f2b63d", 0, -1.7))
+        for bx in (-2.6, .2, 3.0):
+            g.add(box(.8, .7, "#d9a066", bx, -1.35, sc="#8a6a42", sw=3))
+        for i in range(4):
+            amb.append(("cloud", VGroup(dot(.3, "#cfd6dd", 0, 0), dot(.4, "#cfd6dd", .3, .15)).move_to([5.0 + i * .4, 3.4 + i * .5, 0]), i))
+    elif name == "road":
+        g.add(box(FW, FH, "#bfe0f2"), Polygon([-8, -1.0, 0], [-3, .2, 0], [2, -.6, 0], [8, .1, 0], [8, -4, 0], [-8, -4, 0]).set_fill("#79a874", 1).set_stroke(width=0))
+        g.add(Polygon([-1.2, 0, 0], [1.2, 0, 0], [6.5, -4, 0], [-6.5, -4, 0]).set_fill("#454c55", 1).set_stroke(width=0))
+        for k, w_ in enumerate((.1, .16, .24, .34)):
+            y0 = -.3 - k * .9
+            g.add(box(w_, .45, "#f2e6a0", 0, y0))
+        g.add(box(.12, 1.4, "#6b5a47", 4.6, -.4), box(1.3, .8, "#2f7d4f", 4.6, .6, sc=WHITE, sw=3))
+        for i in range(3):
+            amb.append(("cloud", VGroup(dot(.35, WHITE, 0, 0), dot(.5, WHITE, .45, .1), dot(.35, WHITE, .9, 0)).move_to([-5 + i * 5, 3.0 - i * .4, 0]), i))
+    elif name == "abstract":
+        g.add(box(FW, FH, "#101a3a"), dot(3.4, "#1c2b5e", -3.5, 1.2, op=.55), dot(2.6, "#243a7a", 4.2, -1.0, op=.4), dot(1.6, "#2e4a96", 0, 2.4, op=.3))
+        for gx in np.arange(-7, 7.2, 1.0):
+            for gy in np.arange(-3.5, 3.6, 1.0):
+                g.add(dot(.025, "#7c93d6", gx, gy, op=.35))
+        for _ in range(26):
+            amb.append(("twinkle", dot(rnd.uniform(.03, .07), "#cfe0ff", rnd.uniform(-7, 7), rnd.uniform(-3.8, 3.8)), rnd.uniform(0, 6)))
     elif name == "bedroom":
         g.add(box(FW, FH, "#cdbfe0"), box(FW, 1.6, "#8b6f5a", y=-3.2))
         g.add(box(2, 2.2, "#1b2550", -5.6, 2, sc=WHITE, sw=3), dot(.4, "#f7f1c4", -5.3, 2.3))
@@ -992,6 +1460,8 @@ class SceneRenderer(MovingCameraScene):
             speaker = "guide"
         props = [p for p in (spec.get("props") or []) if isinstance(p, dict)][:2]
         reaction = spec.get("reaction") or "none"
+        _EMO = ("neutral", "happy", "shock", "fear", "worried", "think", "sad", "angry")
+        base_emo = spec.get("emotion") if spec.get("emotion") in _EMO else {"calm": "neutral", "tense": "worried", "danger": "fear", "relief": "happy"}.get(spec.get("mood") or "calm", "neutral")
         punch = str(spec.get("punch") or "").strip()[:28]
         bdname = spec.get("backdrop") or "lab"
         self.camera.background_color = INK
@@ -1009,7 +1479,7 @@ class SceneRenderer(MovingCameraScene):
         elif layout == "walk":
             cfg = {speaker: (-4.4 * side, GROUND, 1.1)}
         elif layout == "closeup":
-            cfg = {speaker: (-3.9 * side, -3.2, 1.5)}
+            cfg = {speaker: (-3.9 * side, -3.2, 1.3)}
         elif layout == "prop_only":
             cfg = {"guide": (-5.5, -2.65, .72)}
         chars = {k: Char(k) for k in cfg}
@@ -1192,8 +1662,6 @@ class SceneRenderer(MovingCameraScene):
             fx = cfg[speaker][0]
         react_t0 = .55 * dur
         cues = []
-        if enter:
-            cues.append((0.02, "whoosh"))
         for i, s_ in enumerate(slots):
             cues.append((s_.t_in, "pop"))
         if kind == "stat":
@@ -1260,11 +1728,13 @@ class SceneRenderer(MovingCameraScene):
                 point = 0
                 if spk and slots and 1.0 < t < min(dur - .3, 3.8) and layout in ("duo", "solo"):
                     point = 1 if cx > x_t else -1
-                emote, ep = None, 0.0
+                emote, ep = base_emo, clamp(t / .5) * (.3 if base_emo == "happy" else .85)
+                is_base = True
                 if reaction != "none":
                     tgt = listener if listener else speaker
                     if k == tgt and react_t0 < t < react_t0 + 1.5:
                         emote, ep = reaction, clamp((t - react_t0) / .45) * (1 - clamp((t - react_t0 - 1.1) / .4))
+                        is_base = False
                         if reaction == "shock":
                             ep = clamp((t - react_t0) / .5) * (1 - clamp((t - react_t0 - 1.1) / .4))
                 look = 0.0
@@ -1272,7 +1742,7 @@ class SceneRenderer(MovingCameraScene):
                     look = 1 if sx_ > x else -1
                 elif slots and spk:
                     look = 1 if cx > x else -1
-                ch.pose(t, x, gnd, scale=scl, speaking=spk, amp=st["amp"] if spk else 0.0, shape=st.get("shp", .5), point=point, emote=emote, ep=ep,
+                ch.pose(t, x, gnd, scale=scl, speaking=spk, amp=st["amp"] if spk else 0.0, shape=st.get("shp", .5), point=point, emote=emote, ep=ep, face_only=is_base,
                         walking=walking, wave_hand=(kind == "title" and spk and t < 2.5), look=look)
             for s_ in slots:
                 s_.update(t, dur)
@@ -1423,6 +1893,8 @@ class ThumbScene(Scene):
         if sp.get("scene") == "zombie":
             self.zombie_thumb(sp)
             return
+        self.neon_thumb(sp)
+        return
         ic_x, ic_y = 3.5, -1.95
         # sunburst from the icon
         for i in range(24):
@@ -1463,7 +1935,7 @@ class ThumbScene(Scene):
                 self.add(Line([px - .6, py + .6, 0], [px + .6, py - .6, 0]).set_stroke("#ff1a1a", 9))
         # shocked character: hands clutching head, bottom-left
         ch = Char("guide")
-        ch.pose(1.0, -4.9, -5.1, scale=2.05, speaking=True, amp=1.0, emote="shock", ep=1.0)
+        ch.pose(1.0, -4.3, -6.3, scale=2.2, speaking=True, amp=1.0, emote="shock", ep=1.0)
         for arm_, sg in ((ch.arm_l, -1), (ch.arm_r, 1)):
             arm_.rotate(sg * (2.83 - 2.4), about_point=arm_[0].get_center())
             ch.g.remove(arm_)
@@ -1493,6 +1965,71 @@ class ThumbScene(Scene):
         for i in range(8):
             self.add(Annulus(inner_radius=5.6 + .45 * i, outer_radius=15).set_fill(BLACK, .05).set_stroke(width=0))
 
+    def neon_thumb(self, sp):
+        """Topic-related backdrop + glowing neon headline; darker and redder when the topic is scary."""
+        NEON = {"red": "#ff3b5c", "blue": "#38d9ff", "purple": "#d070ff", "green": "#39ff88", "gold": "#ffd23f"}
+        neon = NEON.get(sp.get("theme") or "red", "#ff3b5c")
+        fear = bool(sp.get("fear"))
+        name = sp.get("backdrop") or "abstract"
+        bd, _amb = backdrop(name)
+        self.add(bd)
+        self.add(box(FW + .6, FH + .6, "#02030a", 0, 0, op=.66 if fear else .5))
+        if fear:
+            for i in range(10):
+                self.add(Annulus(inner_radius=4.6 + .5 * i, outer_radius=15).set_fill("#b0001a", .06).set_stroke(width=0))
+        ic_x, ic_y = 3.6, -1.9
+        for r, o in ((3.6, .10), (3.0, .14), (2.4, .2)):
+            self.add(Circle(radius=r).move_to([ic_x, ic_y, 0]).set_fill(neon, o).set_stroke(width=0))
+        g, spf = make_icon(sp.get("icon") or "warning")
+        if spf:
+            spf(1.0, 3.0)
+        g.scale(1.3).move_to([ic_x, ic_y, 0]).rotate(.08)
+        ring_glow = [Circle(radius=1.9).move_to([ic_x, ic_y, 0]).set_fill(opacity=0).set_stroke(neon, w, opacity=o) for w, o in ((34, .12), (22, .22), (12, .5))]
+        ring = Circle(radius=1.9).move_to([ic_x, ic_y, 0]).set_fill(opacity=0).set_stroke("#ffffff", 5)
+        self.add(*ring_glow, g, ring)
+        if sp.get("strike"):
+            p1, p2 = [ic_x - 1.5, ic_y + 1.5, 0], [ic_x + 1.5, ic_y - 1.5, 0]
+            self.add(Line(p1, p2).set_stroke("#ff1a1a", 40, opacity=.25), Line(p1, p2).set_stroke("#ff1a1a", 24), Line(p1, p2).set_stroke("#ffd0d0", 7))
+        sats = [i for i in (sp.get("icons") or []) if i in ICONS][:3]
+        spots = [(-.1, -.8), (.5, -3.1), (6.2, -3.1)]
+        for nm, (px, py) in zip(sats, spots):
+            g2, sp2 = make_icon(nm)
+            if sp2:
+                sp2(1.0, 3.0)
+            g2.scale(.62).move_to([px, py, 0])
+            self.add(Circle(radius=.82).move_to([px, py, 0]).set_fill("#0a0d1a", .85).set_stroke(neon, 6), g2)
+            if sp.get("strike"):
+                self.add(Line([px - .6, py + .6, 0], [px + .6, py - .6, 0]).set_stroke("#ff1a1a", 9))
+        ch = Char("guide")
+        ch.pose(1.0, -4.3, -6.3, scale=2.2, speaking=True, amp=1.0, emote="shock", ep=1.0)
+        for arm_, sg in ((ch.arm_l, -1), (ch.arm_r, 1)):
+            arm_.rotate(sg * (2.83 - 2.4), about_point=arm_[0].get_center())
+            ch.g.remove(arm_)
+            ch.g.add(arm_)
+        self.add(ch.g)
+        raw = str(sp.get("text") or "WOW").upper()
+        lines = [x.strip() for x in raw.split("|") if x.strip()][:3] or ["WOW"]
+        ys = {1: [2.2], 2: [2.85, 1.35], 3: [3.2, 1.95, .55]}[len(lines)]
+        for i, ln in enumerate(lines):
+            col = "#ffffff" if (i == 0 or len(lines) == 1) else (neon if i == 1 else "#ffffff")
+            core = T(ln, 150, col, heavy=True)
+            fit(core, 7.6)
+            if len(lines) == 3 and i == 0:
+                fit(core, 6.2)
+                if core.height > .8:
+                    core.scale(.8 / core.height)
+            elif core.height > 1.7:
+                core.scale(1.7 / core.height)
+            core.move_to([2.6, ys[i], 0]).rotate(-.03)
+            glow_col = neon if col == "#ffffff" else col
+            for w, o in ((46, .10), (30, .18), (16, .35)):
+                gl = core.copy().set_fill(glow_col, 0).set_stroke(glow_col, w, opacity=o)
+                self.add(gl)
+            core.set_stroke("#ffffff" if col != "#ffffff" else neon, 3.5)
+            self.add(core)
+        for i in range(6):
+            self.add(Annulus(inner_radius=6.2 + .5 * i, outer_radius=15).set_fill(BLACK, .06).set_stroke(width=0))
+
     def zombie_thumb(self, sp):
         bg = Rectangle(width=FW + .2, height=FH + .2).set_fill(["#1a0206", "#8a1417", "#2a0409"], 1).set_stroke(width=0)
         bg.set_sheen_direction(UP)
@@ -1515,7 +2052,7 @@ class ThumbScene(Scene):
         glow = z.copy()
         self.add(z)
         ch = Char("guide")
-        ch.pose(1.0, -4.9, -5.1, scale=2.05, speaking=True, amp=1.0, emote="shock", ep=1.0)
+        ch.pose(1.0, -4.3, -6.3, scale=2.2, speaking=True, amp=1.0, emote="shock", ep=1.0)
         for arm_, sg in ((ch.arm_l, -1), (ch.arm_r, 1)):
             arm_.rotate(sg * (2.83 - 2.4), about_point=arm_[0].get_center())
             ch.g.remove(arm_)
