@@ -1,6 +1,6 @@
 # Spark & Why ayarlari
 # 1 = video uretilince YouTube'a yuklenir (0 = sadece dosya olarak kalir)
-upload=1
+upload=0
 # Her video, yuklendikten sonraki ilk 01:00'da (Turkiye saati, en az 3 saat sonra) herkese acik olur
 publish_daily=01:00
 privacy=private
