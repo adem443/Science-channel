@@ -3,6 +3,7 @@
 upload=1
 # Her video, yuklendikten sonraki ilk 01:00'da (Turkiye saati, en az 3 saat sonra) herkese acik olur
 publish_daily=01:00
+publish_days=mon,wed,fri,sun
 privacy=private
 # 1 = GitHub haftada 4 kez kendiliginden video uretir (Pazar, Sali, Persembe, Cumartesi 18:00)
 auto=1
