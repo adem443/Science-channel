@@ -538,7 +538,27 @@ def read_settings():
     return d
 
 
-def publish_time(cfg):
+def taken_slots(yt):
+    """UTC datetimes of videos on this channel that are already scheduled (private + publishAt in the future)."""
+    import datetime as dt
+    out = []
+    try:
+        ch = yt.channels().list(part="contentDetails", mine=True).execute()
+        up = ch["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+        ids = [i["contentDetails"]["videoId"] for i in yt.playlistItems().list(part="contentDetails", playlistId=up, maxResults=50).execute().get("items", [])]
+        for k in range(0, len(ids), 50):
+            for v in yt.videos().list(part="status", id=",".join(ids[k:k + 50])).execute().get("items", []):
+                p = v.get("status", {}).get("publishAt")
+                if p:
+                    t = dt.datetime.fromisoformat(p.replace("Z", "+00:00"))
+                    if t > dt.datetime.now(dt.timezone.utc):
+                        out.append(t)
+    except Exception as e:
+        print("Could not read scheduled videos (slot check skipped):", repr(e)[:120])
+    return out
+
+
+def publish_time(cfg, yt=None):
     """Returns a UTC ISO string if publish_at is set and still in the future, else None."""
     import datetime as dt
     v = cfg.get("publish_at", "")
@@ -548,8 +568,19 @@ def publish_time(cfg):
             hh, mm = [int(x) for x in daily.split(":")]
             tr = dt.timezone(dt.timedelta(hours=3))
             now = dt.datetime.now(tr)
+            names = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+            allowed = {names.index(x.strip()[:3].lower()) for x in (cfg.get("publish_days") or "").split(",") if x.strip()[:3].lower() in names}
+            taken = taken_slots(yt) if yt is not None else []
             cand = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
-            if cand < now + dt.timedelta(hours=3):
+            for _ in range(60):
+                ok = cand >= now + dt.timedelta(hours=3)
+                if ok and allowed and cand.weekday() not in allowed:
+                    ok = False
+                if ok and any(abs((t - cand).total_seconds()) < 20 * 3600 for t in taken):
+                    print("Slot", cand.isoformat(), "is already taken by another scheduled video, trying the next one")
+                    ok = False
+                if ok:
+                    break
                 cand += dt.timedelta(days=1)
             return cand.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
         except Exception:
@@ -602,7 +633,7 @@ def upload(video, thumb, data, cfg=None):
                     token_uri="https://oauth2.googleapis.com/token",
                     client_id=os.environ["YT_CLIENT_ID"], client_secret=os.environ["YT_CLIENT_SECRET"])
     yt = build("youtube", "v3", credentials=c)
-    pub = publish_time(cfg)
+    pub = publish_time(cfg, yt)
     privacy = cfg.get("privacy") or os.environ.get("PRIVACY", "private")
     status = {"privacyStatus": "private" if pub else privacy, "selfDeclaredMadeForKids": False}
     if pub:
