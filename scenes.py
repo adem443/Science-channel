@@ -1893,7 +1893,7 @@ class ThumbScene(Scene):
         if sp.get("scene") == "zombie":
             self.zombie_thumb(sp)
             return
-        self.neon_thumb(sp)
+        self.action_thumb(sp)
         return
         ic_x, ic_y = 3.5, -1.95
         # sunburst from the icon
@@ -1964,6 +1964,86 @@ class ThumbScene(Scene):
         # soft vignette for punch
         for i in range(8):
             self.add(Annulus(inner_radius=5.6 + .45 * i, outer_radius=15).set_fill(BLACK, .05).set_stroke(width=0))
+
+
+    def action_thumb(self, sp):
+        """Clean thumbnail, no character: dark topic backdrop, huge glowing subject icon, consequence icons, headline that states the premise."""
+        NEON = {"red": "#ff3b5c", "blue": "#38d9ff", "purple": "#d070ff", "green": "#39ff88", "gold": "#ffd23f"}
+        neon = NEON.get(sp.get("theme") or "red", "#ff3b5c")
+        fear = bool(sp.get("fear"))
+        bd, _amb = backdrop(sp.get("backdrop") or "abstract")
+        self.add(bd)
+        self.add(box(FW + .6, FH + .6, "#04050f", 0, 0, op=.7 if fear else .62))
+        rr = random.Random(11)
+        icx, icy = 3.5, .1
+        for r, o in ((8.4, .05), (6.8, .07), (5.3, .09), (4.0, .12), (3.0, .17)):
+            self.add(Circle(radius=r).move_to([icx, icy, 0]).set_fill(neon, o).set_stroke(width=0))
+        # radiating light rays
+        for i in range(44):
+            a_ = rr.uniform(0, TAU); r0 = rr.uniform(3.0, 4.2); L = rr.uniform(2.0, 6.5)
+            p0 = np.array([icx + r0 * np.cos(a_), icy + r0 * np.sin(a_), 0])
+            d = np.array([np.cos(a_), np.sin(a_), 0]); n = np.array([-d[1], d[0], 0]) * rr.uniform(.02, .07)
+            st = Polygon(p0, p0 + d * L, p0 + d * L + n, p0 + n)
+            st.set_fill("#ffffff" if i % 3 else neon, rr.uniform(.12, .34)).set_stroke(width=0)
+            self.add(st)
+        # shockwave rings
+        for r, w, o in ((3.5, 14, .28), (4.3, 9, .2), (5.2, 6, .14), (6.3, 4, .1)):
+            self.add(Circle(radius=r).move_to([icx, icy, 0]).set_fill(opacity=0).set_stroke(neon, w, opacity=o))
+        # sparks
+        for i in range(26):
+            a_ = rr.uniform(0, TAU); r_ = rr.uniform(2.8, 5.6)
+            self.add(Circle(radius=rr.uniform(.03, .09)).move_to([icx + r_ * np.cos(a_), icy + r_ * np.sin(a_), 0]).set_fill("#ffffff", rr.uniform(.5, .95)).set_stroke(width=0))
+        g, spf = make_icon(sp.get("icon") or "warning")
+        if spf:
+            spf(1.0, 3.0)
+        g.scale(2.3).move_to([icx, icy, 0]).rotate(-.08)
+        # drop shadow + white rim light + neon halo
+        sh = g.copy()
+        for m_ in sh.family_members_with_points():
+            m_.set_fill(BLACK, .55 if m_.get_fill_opacity() > 0 else 0)
+            m_.set_stroke(BLACK, opacity=.55 if m_.get_stroke_width() > 0 else 0)
+        sh.shift([.28, -.28, 0])
+        halo = g.copy()
+        for m_ in halo.family_members_with_points():
+            m_.set_fill(neon, .0)
+            m_.set_stroke(neon, 26, opacity=.22)
+        rim = g.copy()
+        for m_ in rim.family_members_with_points():
+            m_.set_fill(WHITE, 0)
+            m_.set_stroke(WHITE, 7, opacity=.55)
+        self.add(sh, halo, g, rim)
+        if sp.get("strike"):
+            p1, p2 = [icx - 2.4, icy + 2.4, 0], [icx + 2.4, icy - 2.4, 0]
+            self.add(Line(p1, p2).set_stroke("#ff1a1a", 80, opacity=.22), Line(p1, p2).set_stroke(BLACK, 58),
+                     Line(p1, p2).set_stroke("#ff1a1a", 40), Line(p1, p2).set_stroke("#ffd0d0", 9))
+        # consequence icons, bottom-left
+        sats = [i for i in (sp.get("icons") or []) if i in ICONS][:3]
+        for k, nm in enumerate(sats):
+            px, py = -5.6 + 1.85 * k, -3.05
+            g2, sp2 = make_icon(nm)
+            if sp2:
+                sp2(1.0, 3.0)
+            g2.scale(.62).move_to([px, py, 0])
+            self.add(Circle(radius=.82).move_to([px, py, 0]).set_fill(neon, .25).set_stroke(width=0),
+                     Circle(radius=.74).move_to([px, py, 0]).set_fill("#0a0d1a", .9).set_stroke(neon, 6), g2)
+        # headline: states the premise. up to 3 lines (1st small lead-in, others huge)
+        raw = str(sp.get("text") or "WOW").upper()
+        lines = [x.strip() for x in raw.split("|") if x.strip()][:3] or ["WOW"]
+        n_ = len(lines)
+        ys = {1: [.2], 2: [.95, -.95], 3: [2.55, 1.2, -.45]}[n_]
+        cols = {1: ["#ffffff"], 2: ["#ffffff", "#ffd23f"], 3: ["#ffffff", "#ffffff", "#ffd23f"]}[n_]
+        for i, ln in enumerate(lines):
+            t = T(ln, 150, cols[i], heavy=True)
+            small = (n_ == 3 and i == 0)
+            fit(t, 6.4 if small else 7.4)
+            cap = .85 if small else 1.65
+            if t.height > cap:
+                t.scale(cap / t.height)
+            t.set_stroke(BLACK, 16 if small else 24, background=True)
+            t.move_to([-6.6 + t.width / 2, ys[i], 0]).rotate(.02)
+            self.add(t)
+        for i in range(7):
+            self.add(Annulus(inner_radius=6.0 + .5 * i, outer_radius=15).set_fill("#b0001a" if fear else BLACK, .07).set_stroke(width=0))
 
     def neon_thumb(self, sp):
         """Topic-related backdrop + glowing neon headline; darker and redder when the topic is scary."""
