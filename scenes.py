@@ -1060,7 +1060,8 @@ class Char:
         self.g.save_state()
 
     def pose(self, t, x, ground, scale=1.15, speaking=False, amp=0.0, point=0, emote=None, ep=0.0,
-             walking=False, calm=False, wave_hand=False, look=0.0, shape=.5, face_only=False, hood=False):
+             walking=False, calm=False, wave_hand=False, look=0.0, shape=.5, face_only=False, hood=False,
+             turn=0.0, facing=1, speed=3.0):
         g = self.g
         g.restore()
         jump, squash = 0.0, 0.0
@@ -1191,6 +1192,270 @@ class Char:
         sc = scale * (.93 if self.fem else 1.0) * (1 + (.035 * amp if speaking else 0) + squash)
         g.scale(sc, about_point=[0, -1.75, 0])
         g.shift([x, ground + 1.75 + bob + jump, 0])
+
+
+# ---------------------------------------------------------------- new-style characters (black round head, white minimal face)
+BLK2 = "#07080b"
+
+
+def _cap2(p1, p2, w, col, rim=True):
+    p1, p2 = np.array(p1, float), np.array(p2, float)
+    L = np.linalg.norm(p2 - p1)
+    ang = np.arctan2(p2[1] - p1[1], p2[0] - p1[0])
+    r = RoundedRectangle(corner_radius=w / 2, width=L + w, height=w).set_fill(col, 1).set_stroke(width=0)
+    r.rotate(ang).move_to((p1 + p2) / 2)
+    g = VGroup(r)
+    if rim:
+        d = np.array([-np.sin(ang), np.cos(ang), 0]) * (w * .36)
+        g.add(Line(p1 - d + (p2 - p1) * .06, p2 - d - (p2 - p1) * .06).set_stroke("#ffffff", 3, opacity=.55))
+    return g
+
+
+def _hand2(p, s, sx):
+    """human-like hand: palm + four fingers + thumb"""
+    p = np.array(p, float)
+    g = VGroup(RoundedRectangle(corner_radius=.09 * s, width=.27 * s, height=.24 * s).set_fill(BLK2, 1).set_stroke(width=0).move_to(p + [0, -.02 * s, 0]))
+    for dx, ln, rot in ((-.095, .24, .06), (-.032, .29, .02), (.032, .28, -.02), (.095, .22, -.07)):
+        f = RoundedRectangle(corner_radius=.035 * s, width=.062 * s, height=ln * s).set_fill(BLK2, 1).set_stroke(width=0)
+        g.add(f.rotate(rot).move_to(p + [dx * s, -.12 * s - ln * s / 2 + .05 * s, 0]))
+    th = RoundedRectangle(corner_radius=.04 * s, width=.07 * s, height=.2 * s).set_fill(BLK2, 1).set_stroke(width=0)
+    g.add(th.rotate(-sx * .85).move_to(p + [-sx * .16 * s, -.03 * s, 0]))
+    g.add(Line(p + [sx * .1 * s, .08 * s, 0], p + [sx * .1 * s, -.1 * s, 0]).set_stroke("#ffffff", 1.6, opacity=.4))
+    return g
+
+
+class Char2:
+    """Black round head, white minimal face, rounded limbs, human hands. Same pose() API as Char.
+    Local ground is y=-1.75."""
+
+    def __init__(self, kind):
+        fem = kind == "you"
+        self.fem = fem
+        self.host = not fem
+        s = .52 if fem else .69
+        y0 = -1.75 + 1.78 * s
+        self.s, self.y0 = s, y0
+        P = lambda dx, dy: [dx * s, y0 + dy * s, 0]
+        if fem:
+            sweater, pants, hair, shoe, legc = "#e9a3c1", "#2b3140", "#d9822b", "#7a3b4f", "#0a0b0f"
+        else:
+            sweater, pants, hair, shoe, legc = "#3f7a5a", "#4a4f5c", None, "#f2ead2", "#4a4f5c"
+        self.shadow = Ellipse(width=2.1, height=.3).set_fill(BLACK, .22).set_stroke(width=0).move_to([0, -1.76, 0])
+
+        def leg(sx):
+            piv = Dot(P(sx * .32, 0), radius=.01).set_opacity(0)
+            kn = Dot(P(sx * .33, -.8), radius=.01).set_opacity(0)
+            thigh = _cap2(P(sx * .32, 0), P(sx * .33, -.8), .34 * s, legc)
+            shin = _cap2(P(sx * .33, -.8), P(sx * .34, -1.6), .32 * s, legc)
+            sh = Ellipse(width=.55 * s, height=.22 * s).set_fill(shoe, 1).set_stroke(BLK2, 2).move_to(P(sx * .42, -1.78))
+            return VGroup(piv, thigh, kn, shin, sh)
+        self.leg_l, self.leg_r = leg(-1), leg(1)
+
+        tw, th = 1.25 * s, 1.55 * s
+        tor = RoundedRectangle(corner_radius=.33 * s, width=tw, height=th).set_fill(sweater, 1).set_stroke(BLK2, 2.5).move_to(P(0, .72))
+        self.body = VGroup(tor,
+                           RoundedRectangle(corner_radius=.33 * s, width=tw * .45, height=th * .96).set_fill("#000000", .14).set_stroke(width=0).move_to(P(.52, .72)),
+                           Rectangle(width=tw * .98, height=.2 * s).set_fill("#f2ead2" if not fem else "#000000", 1 if not fem else .18).set_stroke(width=0).move_to(P(0, -.02)),
+                           Ellipse(width=.62 * s, height=.22 * s).set_fill("#f2ead2" if not fem else "#000000", 1 if not fem else .22).set_stroke(BLK2 if not fem else sweater, 1.5 if not fem else 0).move_to(P(0, 1.46)),
+                           Line(P(-.43, .25), P(-.43, 1.25)).set_stroke("#ffffff", 3.5, opacity=.55))
+        if not fem:
+            self.body.add(Line(P(0, 0), P(0, 1.42)).set_stroke("#1d3a2c", 4),
+                          Rectangle(width=.3 * s, height=.22 * s).set_fill("#000000", .2).set_stroke(width=0).move_to(P(-.3, .45)))
+        if fem:
+            self.skirt = Polygon(P(-.62, .05), P(.62, .05), P(.82, -.5), P(-.82, -.5)).set_fill("#6a4c93", 1).set_stroke(BLK2, 2.5)
+        else:
+            self.skirt = VGroup()
+
+        def arm(sx):
+            sh_, el, ha = P(sx * .66, 1.3), P(sx * .84, .62), P(sx * .8, -.02)
+            piv = Dot(sh_, radius=.01).set_opacity(0)
+            return VGroup(piv, _cap2(sh_, el, .36 * s, sweater), _cap2(el, ha, .3 * s, sweater), _hand2([ha[0], ha[1] - .05 * s, 0], s, sx))
+        self.arm_l, self.arm_r = arm(-1), arm(1)
+
+        hy = y0 + 2.55 * s
+        self.hx, self.hy = 0.0, hy
+        hr = .98 * s
+        head = Circle(radius=hr).set_fill(BLK2, 1).set_stroke("#ffffff", 3, opacity=.5).move_to([0, hy, 0])
+        parts = [head]
+        if fem:
+            cap_ = Difference(Circle(radius=hr * 1.04).move_to([0, hy + hr * .03, 0]), Circle(radius=hr * 1.04).move_to([hr * .1, hy - hr * .35, 0])).set_fill(hair, 1).set_stroke(BLK2, 2.5)
+            pony = Ellipse(width=.46 * s, height=1.2 * s).set_fill(hair, 1).set_stroke(BLK2, 2.5).rotate(.5).move_to([hr * 1.0, hy + .1 * s, 0])
+            bow = VGroup(Triangle().scale(.14 * s).rotate(PI / 2), Triangle().scale(.14 * s).rotate(-PI / 2)).set_fill("#ff4d8d", 1).set_stroke(width=0).move_to([hr * .9, hy + hr * .72, 0])
+            parts += [pony, cap_, bow]
+        else:
+            parts.append(Arc(radius=hr * .88, start_angle=PI * .62, angle=PI * .3).set_stroke("#ffffff", 4, opacity=.45).move_to([-hr * .42, hy + hr * .62, 0]))
+        self.head = VGroup(*parts)
+        ey = hy - .02 * s
+        self.ey = ey
+        W = "#ffffff"
+        self.eyes_w = VGroup(*[Ellipse(width=.17 * s, height=.27 * s).set_fill(W, 1).set_stroke(width=0).move_to([sx * .34 * s, ey, 0]) for sx in (-1, 1)])
+        self.happy_eyes = VGroup(*[Arc(radius=.16 * s, start_angle=PI * .1, angle=PI * .8).set_stroke(W, 5).move_to([sx * .34 * s, ey, 0]) for sx in (-1, 1)])
+        self.brows = VGroup(Line([-.52 * s, ey + .26 * s, 0], [-.18 * s, ey + .26 * s, 0]).set_stroke(W, 5), Line([.18 * s, ey + .26 * s, 0], [.52 * s, ey + .26 * s, 0]).set_stroke(W, 5))
+        self.brows.set_stroke(opacity=0)
+        my = ey - .28 * s
+        self.my = my
+        self.smile = Arc(radius=.24 * s, start_angle=PI * 1.15, angle=PI * .7).set_stroke(W, 5).move_to([0, my, 0])
+        self.frown = Arc(radius=.2 * s, start_angle=PI * .15, angle=PI * .7).set_stroke(W, 5).move_to([0, my - .04 * s, 0])
+        self.flat = Line([-.17 * s, my, 0], [.17 * s, my, 0]).set_stroke(W, 5)
+        self.mouth = Ellipse(width=.3 * s, height=.3 * s).set_fill("#3b1620", 1).set_stroke(W, 4).move_to([0, my, 0])
+        self.sweat = VGroup(Triangle().scale(.1 * s * 1.6).stretch(1.4, 1).move_to([0, .1 * s, 0]), Circle(radius=.1 * s * 1.6).move_to([0, -.04 * s, 0])).set_fill("#7fd1ff", 1).set_stroke(width=0).move_to([hr * 1.0, hy + hr * .55, 0])
+        self.burst = VGroup(*[Line([0, .15 * s, 0], [0, .5 * s, 0]).set_stroke(YEL, 6).rotate(a, about_point=[0, 0, 0]) for a in (-.7, 0, .7)]).move_to([hr * 1.15, hy + hr * 1.05, 0])
+        self.face = VGroup(self.eyes_w, self.happy_eyes, self.brows, self.smile, self.frown, self.flat, self.mouth)
+        self.headg = VGroup(self.head, self.face, self.sweat, self.burst)
+        self.hair_back = VGroup()
+        self.g = VGroup(self.shadow, self.leg_l, self.leg_r, self.skirt, self.body, self.arm_l, self.arm_r, self.headg)
+        self.g.save_state()
+
+    def pose(self, t, x, ground, scale=1.15, speaking=False, amp=0.0, point=0, emote=None, ep=0.0,
+             walking=False, calm=False, wave_hand=False, look=0.0, shape=.5, face_only=False, hood=False,
+             turn=0.0, facing=1, speed=3.0):
+        g, s, y0 = self.g, self.s, self.y0
+        g.restore()
+        jump, squash = 0.0, 0.0
+        tw = clamp(turn) if (walking or turn > 0) else 0.0
+        run = clamp((speed - 3.5) / 2.5)
+        om = clamp(2.7 * speed, 4.5, 14.0)
+        ph = om * t
+        fc = 1 if facing >= 0 else -1
+        a_l = a_r = fl_l = fl_r = 0.0
+        if tw > 0:
+            a_l = (.5 + .3 * run) * np.sin(ph) * fc * tw
+            a_r = -a_l
+            K = (.85 + .4 * run) * tw
+            fl_l = -fc * K * max(0.0, np.cos(ph))
+            fl_r = -fc * K * max(0.0, -np.cos(ph))
+            bob = (.07 + .05 * run) * abs(np.sin(ph)) * tw + .035 * np.sin(2.2 * t) * (1 - tw)
+        else:
+            bob = .035 * np.sin(2.2 * t + (0 if not self.fem else 1.3))
+        # airborne tuck for jumps (shock / happy)
+        air = 0.0
+        if not face_only and tw == 0:
+            if emote == "shock" and ep < 1:
+                air = clamp(.35 * max(0.0, np.sin(PI * clamp(ep))) / .2)
+            elif emote == "happy":
+                air = clamp(.15 * abs(np.sin(9 * t)) * ep / .1)
+        if air > 0:
+            a_l, a_r, fl_l, fl_r = -.3 * air, .3 * air, -.55 * air, .55 * air
+        for lg, ang, fl in ((self.leg_l, a_l, fl_l), (self.leg_r, a_r, fl_r)):
+            hip = lg[0].get_center()
+            for m in (lg[1], lg[2], lg[3], lg[4]):
+                m.rotate(ang, about_point=hip)
+            kc = lg[2].get_center()
+            for m in (lg[3], lg[4]):
+                m.rotate(fl, about_point=kc)
+        if tw > 0:
+            self.leg_l.shift(RIGHT * .2 * s * tw); self.leg_r.shift(LEFT * .2 * s * tw)
+            for lg in (self.leg_l, self.leg_r):
+                lg[4].shift(RIGHT * fc * .1 * s * tw)
+        ae = None if face_only else emote
+        for arm, sd in ((self.arm_l, -1), (self.arm_r, 1)):
+            if tw > 0:
+                ang = sd * (.5 + .45 * run) * np.sin(ph) * fc * tw
+            elif wave_hand and sd == 1:
+                ang = 2.5 + .4 * np.sin(10 * t)
+            elif point == sd:
+                ang = sd * (1.5 + .06 * np.sin(5 * t))
+            elif speaking:
+                ang = sd * (.12 + .75 * amp) * (.55 + .45 * np.sin(3.6 * t + (1 if sd > 0 else 0)))
+            else:
+                ang = sd * (.08 + .05 * np.sin(2.0 * t + sd))
+            if tw > 0:
+                pass
+            elif ae == "shock":
+                ang = sd * (.5 + 1.9 * ep)
+            elif ae == "happy":
+                ang = sd * (.4 + 1.9 * ep * (.55 + .45 * np.sin(11 * t)))
+            elif ae == "think" and sd == 1:
+                ang = sd * (2.2 * ep + .1)
+            elif ae == "worried":
+                ang = sd * (.3 + .9 * ep)
+            elif ae == "fear":
+                ang = sd * (.25 + .8 * ep)
+            arm.rotate(ang, about_point=arm[0].get_center())
+            if tw > 0:
+                arm.shift(RIGHT * (-sd) * .5 * s * tw)
+        # ---- face
+        openness = .04 + (.62 * amp if speaking else 0)
+        smile_w = 1.0
+        eye_h, brow_up, brow_tilt, brow_op = 1.0, 0.0, 0.0, 0.0
+        show = "smile"
+        if emote == "shock":
+            openness, show, eye_h, brow_up, brow_op = max(openness, .25 + .6 * ep), "open", 1 + .35 * ep, .08 * ep, ep
+            jump = .35 * max(0.0, np.sin(PI * clamp(ep))) if ep < 1 else 0.0
+            squash = -.05 * ep
+        elif emote == "happy":
+            show, eye_h, smile_w = ("open" if openness > .1 else "smile"), 1 - .5 * ep, 1 + .5 * ep
+            jump = .15 * abs(np.sin(9 * t)) * ep
+        elif emote == "worried":
+            show, brow_tilt, brow_up, brow_op = ("open" if openness > .12 else "frown"), .3 * ep, .04 * ep, ep
+        elif emote == "fear":
+            show, eye_h, brow_up, brow_tilt, brow_op = ("open" if openness > .12 else "frown"), 1 + .3 * ep, .06 * ep, .35 * ep, ep
+        elif emote == "sad":
+            show, eye_h, brow_tilt, brow_op = ("open" if openness > .12 else "frown"), 1 - .15 * ep, .3 * ep, ep
+        elif emote == "angry":
+            show, eye_h, brow_tilt, brow_op = ("open" if openness > .12 else "frown"), 1 - .25 * ep, -.35 * ep, ep
+        elif emote == "neutral":
+            show = "flat" if ep > .3 else "smile"
+        elif emote == "think":
+            brow_up, brow_op = .05 * ep, ep * .8
+            show = "flat" if ep > .3 else "smile"
+        if face_only:
+            jump, squash = 0.0, 0.0
+        if show in ("smile", "flat") and speaking and openness > .12:
+            show = "open"
+        self.smile.set_stroke(opacity=1 if show == "smile" else 0)
+        self.flat.set_stroke(opacity=1 if show == "flat" else 0)
+        self.frown.set_stroke(opacity=1 if show == "frown" else 0)
+        op = 1 if show == "open" else 0
+        self.mouth.set_fill(opacity=op).set_stroke(opacity=op)
+        if op:
+            self.mouth.stretch_to_fit_height(max(.05 * s, min(.5 * s, openness * (1.25 - .45 * shape) * .8 * s)))
+            self.mouth.stretch_to_fit_width((.2 + .3 * shape + (.1 if emote == "happy" else 0) - (.06 if emote == "shock" else 0)) * s)
+            self.mouth.move_to([0, self.my - (.04 * s if openness > .3 else 0), 0])
+        self.smile.stretch(smile_w, 0)
+        self.eyes_w.stretch(eye_h, 1)
+        lk = look
+        self.eyes_w.shift(RIGHT * lk * .05 * s)
+        hap = emote == "happy" and ep > .35
+        self.happy_eyes.set_stroke(opacity=1 if hap else 0)
+        if hap:
+            self.eyes_w.set_fill(opacity=0)
+        brow_up += (.05 * amp * (1 + np.sin(6 * t) * .4)) if speaking else 0
+        self.brows.shift(UP * brow_up * s * 2.2)
+        if brow_op > 0:
+            self.brows.set_stroke(opacity=min(1.0, brow_op))
+        if brow_tilt:
+            self.brows[0].rotate(brow_tilt); self.brows[1].rotate(-brow_tilt)
+        if emote == "shock":
+            self.sweat.set_opacity(ep); self.burst.set_opacity(ep)
+        elif emote == "fear":
+            self.sweat.set_opacity(ep); self.burst.set_opacity(0)
+        else:
+            self.sweat.set_opacity(0); self.burst.set_opacity(0)
+        bt = (t + (1.1 if self.fem else 0)) % 3.1
+        if (bt < .13 or (2.7 < bt < 2.78 and int(t) % 3 == 0)) and not hap:
+            self.eyes_w.stretch_to_fit_height(.03)
+        neck = [0, y0 + 1.7 * s, 0]
+        tilt = .1 * ep if emote == "think" else (.05 * np.sin(3 * t) if speaking else .04 * np.sin(2.4 * t))
+        self.headg.rotate(tilt, about_point=neck)
+        self.headg.shift(UP * (.04 * amp if speaking else 0))
+        if speaking:
+            self.headg.rotate(-.035 * amp * np.sin(5.5 * t), about_point=neck)
+        self.body.scale(1 + .014 * np.sin(2.6 * t), about_point=[0, y0 - .05 * s, 0])
+        if tw > 0:
+            self.body.stretch(1 - .4 * tw, 0, about_point=[0, 0, 0])
+            self.face.shift(RIGHT * fc * .36 * s * tw)
+            g.rotate(-fc * (.05 + .09 * run) * tw, about_point=[0, -1.75, 0])
+        sc = scale * 1.28 * (1 + (.035 * amp if speaking else 0) + squash)
+        g.scale(sc, about_point=[0, -1.75, 0])
+        g.shift([x, ground + 1.75 + bob + jump, 0])
+
+
+_CharOld = Char
+
+
+def Char(kind):
+    return Char2(kind) if kind in ("guide", "host", "you") else _CharOld(kind)
 
 
 # ---------------------------------------------------------------- backdrops
@@ -1717,13 +1982,19 @@ class SceneRenderer(MovingCameraScene):
             for k, ch in chars.items():
                 x_t, gnd, scl = cfg[k]
                 walking, x = False, x_t
+                turn_, face_, spd_ = 0.0, 1, 3.0
                 if layout == "walk":
                     x = -6.8 * side + 13.6 * side * clamp(t / dur)
                     walking = True
+                    turn_, face_, spd_ = clamp(t / .25), side, 13.6 / max(dur, 1.0)
                 elif enter and layout not in ("closeup", "prop_only"):
                     f = clamp(t / .9)
                     x = x_t - (1 - f) * (4.2 if x_t < 0 else -4.2)
                     walking = f < 1
+                    face_ = 1 if x_t < 0 else -1
+                    spd_ = 4.2 / .9
+                    turn_ = 1.0 if f < 1 else 1.0 - clamp((t - .9) / .3)
+                    walking = turn_ > 0
                 spk = (k == speaker)
                 point = 0
                 if spk and slots and 1.0 < t < min(dur - .3, 3.8) and layout in ("duo", "solo"):
@@ -1743,7 +2014,8 @@ class SceneRenderer(MovingCameraScene):
                 elif slots and spk:
                     look = 1 if cx > x else -1
                 ch.pose(t, x, gnd, scale=scl, speaking=spk, amp=st["amp"] if spk else 0.0, shape=st.get("shp", .5), point=point, emote=emote, ep=ep, face_only=is_base,
-                        walking=walking, wave_hand=(kind == "title" and spk and t < 2.5), look=look)
+                        walking=walking, wave_hand=(kind == "title" and spk and t < 2.5), look=look,
+                        turn=turn_, facing=face_, speed=spd_)
             for s_ in slots:
                 s_.update(t, dur)
                 if s_.tag:
