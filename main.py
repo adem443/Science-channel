@@ -558,6 +558,42 @@ def taken_slots(yt):
     return out
 
 
+def _lead_hours(cfg):
+    try:
+        return float(cfg.get("min_lead_hours", "3"))
+    except Exception:
+        return 3.0
+
+
+def yt_client():
+    c = Credentials(None, refresh_token=os.environ["YT_REFRESH_TOKEN"],
+                    token_uri="https://oauth2.googleapis.com/token",
+                    client_id=os.environ["YT_CLIENT_ID"], client_secret=os.environ["YT_CLIENT_SECRET"])
+    return build("youtube", "v3", credentials=c)
+
+
+def tonights_slot_taken(cfg):
+    """True if the next daily publish slot already has a scheduled video (so a scheduled retry run can skip)."""
+    import datetime as dt
+    daily = cfg.get("publish_daily", "")
+    if not daily or cfg.get("publish_at") or not os.environ.get("YT_REFRESH_TOKEN"):
+        return False
+    try:
+        hh, mm = [int(x) for x in daily.split(":")]
+        tr = dt.timezone(dt.timedelta(hours=3))
+        now = dt.datetime.now(tr)
+        cand = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        while cand < now + dt.timedelta(hours=_lead_hours(cfg)):
+            cand += dt.timedelta(days=1)
+        taken = taken_slots(yt_client())
+        hit = [t for t in taken if abs((t - cand).total_seconds()) < 20 * 3600]
+        print("Next slot:", cand.isoformat(), "| scheduled videos near it:", len(hit))
+        return bool(hit)
+    except Exception as e:
+        print("Slot guard could not run (continuing):", repr(e)[:120])
+        return False
+
+
 def publish_time(cfg, yt=None):
     """Returns a UTC ISO string if publish_at is set and still in the future, else None."""
     import datetime as dt
@@ -573,7 +609,7 @@ def publish_time(cfg, yt=None):
             taken = taken_slots(yt) if yt is not None else []
             cand = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
             for _ in range(60):
-                ok = cand >= now + dt.timedelta(hours=3)
+                ok = cand >= now + dt.timedelta(hours=_lead_hours(cfg))
                 if ok and allowed and cand.weekday() not in allowed:
                     ok = False
                 if ok and any(abs((t - cand).total_seconds()) < 20 * 3600 for t in taken):
@@ -665,6 +701,9 @@ if __name__ == "__main__":
             VOICES[_sp] = [_v] + [x for x in VOICES[_sp] if x != _v]
     if os.environ.get("GITHUB_EVENT_NAME") == "schedule" and cfg.get("auto", "0") != "1":
         print("Scheduled run skipped: auto=0 in settings.txt (manual runs only).")
+        sys.exit(0)
+    if os.environ.get("GITHUB_EVENT_NAME") == "schedule" and cfg.get("retry_guard", "1") == "1" and tonights_slot_taken(cfg):
+        print("A video is already scheduled for the next slot: this retry run is not needed, skipping.")
         sys.exit(0)
     open("used.txt", "a").close()
     ensure_fonts()
