@@ -190,7 +190,7 @@ def generate(topic, brief="", client=None, sleep=time.sleep):
     dead, errors = set(), []
 
     def ask(prompt, label):
-        for rnd in range(5):  # each round tries every live model once, then waits
+        for rnd in range(12):  # each round tries every live model once, then waits (503 overloads can last 30+ min)
             wait_hint = 0.0
             for m in cands:
                 if m in dead:
@@ -211,7 +211,7 @@ def generate(topic, brief="", client=None, sleep=time.sleep):
                         wait_hint = max(wait_hint, retry_delay(text) or 30)
             if len(dead) == len(cands):
                 break
-            w = max(wait_hint, 20 * (rnd + 1))
+            w = max(wait_hint, min(300, 45 * (rnd + 1)))
             print(f"All models busy; waiting {w:.0f}s before round {rnd + 2}", flush=True)
             sleep(w)
         raise SystemExit("Gemini failed. Last errors:\n" + "\n".join(errors[-4:]))
